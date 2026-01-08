@@ -1,0 +1,62 @@
+# Output clips
+clips/
+*.mp4
+*.mkv
+*.avi
+*.mov
+
+# Temporary files
+temp_*.mp4
+temp_*.srt
+temp_cropped_*.mp4
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model cache (Whisper/Hugging Face)
+.cache/
+models/
+
+# Logs
+*.log
+
+# Test files
+test.py
+check_*.py
+debug_*.py
