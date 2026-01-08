@@ -47,7 +47,7 @@ Python dependencies:
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/yt-heatmap-clipper.git
+git clone https://github.com/0xACAB666/yt-heatmap-clipper.git
 cd yt-heatmap-clipper
 ```
 
