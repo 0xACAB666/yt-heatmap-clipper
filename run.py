@@ -295,7 +295,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
             cmd_crop = [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-i", temp_file,
-                "-vf", "scale=1920:-2,crop=720:1280:(iw-720)/2:(ih-1280)/2",
+                "-vf", "scale=-2:1280,crop=720:1280:(iw-720)/2:(ih-1280)/2",
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
@@ -305,7 +305,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
             # - Top: konten game dari tengah-tengah video (960px)
             # - Bottom: facecam dari kiri bawah video asli (320px)
             vf = (
-                f"scale=1920:-2[scaled];"
+                f"scale=-2:1280[scaled];"
                 f"[scaled]split=2[s1][s2];"
                 f"[s1]crop=720:{TOP_HEIGHT}:(iw-720)/2:(ih-1280)/2[top];"
                 f"[s2]crop=720:{BOTTOM_HEIGHT}:0:ih-{BOTTOM_HEIGHT}[bottom];"
@@ -325,7 +325,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
             # - Top: konten game dari tengah-tengah video (960px)
             # - Bottom: facecam dari kanan bawah video asli (320px)
             vf = (
-                f"scale=1920:-2[scaled];"
+                f"scale=-2:1280[scaled];"
                 f"[scaled]split=2[s1][s2];"
                 f"[s1]crop=720:{TOP_HEIGHT}:(iw-720)/2:(ih-1280)/2[top];"
                 f"[s2]crop=720:{BOTTOM_HEIGHT}:iw-720:ih-{BOTTOM_HEIGHT}[bottom];"
