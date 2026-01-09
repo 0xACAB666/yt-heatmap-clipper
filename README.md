@@ -1,18 +1,18 @@
 # yt-heatmap-clipper
 
-Automatically extract the most engaging segments from YouTube videos using
-**Most Replayed (heatmap) data** and convert them into vertical-ready clips with AI-powered subtitles.
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-Required-green.svg)](https://ffmpeg.org/)
+[![Whisper](https://img.shields.io/badge/AI-Faster--Whisper-orange.svg)](https://github.com/guillaumekln/faster-whisper)
 
-This tool parses YouTube audience engagement markers to detect high-interest
-moments and generates short vertical videos suitable for YouTube Shorts,
-Instagram Reels, and TikTok.
+Automatically extract the most engaging segments from YouTube videos using **Most Replayed (heatmap) data** and convert them into vertical-ready clips with AI-powered subtitles.
+
+This tool parses YouTube audience engagement markers to detect high-interest moments and generates short vertical videos suitable for **YouTube Shorts**, **Instagram Reels**, and **TikTok**.
 
 ---
 
-## Features
+## ✨ Features
 
 ### Core Features
-
 - Extracts YouTube **Most Replayed (heatmap)** segments
 - Automatically selects **high-engagement moments**
 - Configurable **pre and post padding** for each clip
@@ -21,147 +21,126 @@ Instagram Reels, and TikTok.
 - Supports standard YouTube videos and Shorts
 
 ### Advanced Features
-
 - **3 Crop Modes**:
-- **Default**: Center crop from original video
-- **Split Left**: Top = center content, Bottom = bottom-left (facecam)
-- **Split Right**: Top = center content, Bottom = bottom-right (facecam)
+  - **Default**: Center crop from original video
+  - **Split Left**: Top = center content, Bottom = bottom-left (facecam)
+  - **Split Right**: Top = center content, Bottom = bottom-right (facecam)
 - **AI Auto Subtitle** (Faster-Whisper):
-- 4-5x faster than standard Whisper
-- Support for Indonesian language (and 99+ languages)
-- Multiple model sizes: tiny, base, small, medium, large
-- Automatic transcription and subtitle burning
-- Customizable subtitle style
+  - 4-5x faster than standard Whisper
+  - Support for Indonesian language (and 99+ languages)
+  - Multiple model sizes: tiny, base, small, medium, large
+  - Automatic transcription and subtitle burning
+  - Customizable subtitle style
 
 ---
 
-## How It Works
+## ⚙️ How It Works
 
-1. **Parse Heatmap Data**: Fetches YouTube watch page and extracts "Most Replayed" markers
-2. **Filter Segments**: Identifies high-engagement moments based on score threshold
-3. **User Selection**: Interactive menu for crop mode and subtitle preferences
-4. **Smart Download**: Downloads only the required time ranges (with padding)
-5. **Video Processing**:
-   - Scales to 1920px width (maintains aspect ratio)
-   - Applies selected crop mode (center, split-left, or split-right)
-   - Converts to 720x1280 vertical format
-6. **AI Transcription** (optional):
-   - Transcribes audio using Faster-Whisper
-   - Generates SRT subtitle file
-   - Burns subtitles with customizable style
-7. **Export**: Saves optimized MP4 clips ready for social media
+1.  **Parse Heatmap Data**: Fetches YouTube watch page and extracts "Most Replayed" markers.
+2.  **Filter Segments**: Identifies high-engagement moments based on score threshold.
+3.  **User Selection**: Interactive menu for crop mode and subtitle preferences.
+4.  **Smart Download**: Downloads only the required time ranges (with padding).
+5.  **Video Processing**:
+    - Scales to 1920px width (maintains aspect ratio).
+    - Applies selected crop mode (center, split-left, or split-right).
+    - Converts to 720x1280 vertical format.
+6.  **AI Transcription** (optional):
+    - Transcribes audio using Faster-Whisper.
+    - Generates SRT subtitle file.
+    - Burns subtitles with customizable style.
+7.  **Export**: Saves optimized MP4 clips ready for social media.
 
 ---
 
-## Requirements
+## 🛠️ Requirements
 
 - Python **3.8 or higher**
 - **FFmpeg** (must be installed and available in PATH)
 - Internet connection
 
 ### Python Dependencies:
-
 - `requests` - HTTP requests
 - `yt-dlp` - YouTube video downloader
 - `faster-whisper` - AI transcription (optional, for subtitles)
 
 ### Hardware Requirements:
-
 - **Minimum**: 2 GB RAM, 1 GB free disk space
 - **Recommended** (with subtitle): 4 GB RAM, 2 GB free disk space
 - Internet bandwidth: ~10 MB/s for smooth downloading
 
 ---
 
-## Installation
+## 🚀 Installation
 
-### 1. Clone Repository
+### Clone Repository
 
 ```bash
 git clone https://github.com/0xACAB666/yt-heatmap-clipper.git
 cd yt-heatmap-clipper
 ```
 
-### 2. Install Python Dependencies
+### Install Python Dependencies
 
 **Basic installation** (without subtitle support):
-
 ```bash
 pip install requests yt-dlp
 ```
 
 **Full installation** (with AI subtitle support):
-
 ```bash
 pip install requests yt-dlp faster-whisper
 ```
 
 Or use requirements file if available:
-
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Install FFmpeg
+### Install FFmpeg
 
-FFmpeg must be installed separately and added to system PATH.
+FFmpeg is the core engine for video processing and **must** be installed.
 
-**Windows:**
+#### 🪟 Windows
 
+```bash
 1. Download from https://ffmpeg.org/download.html
 2. Extract to `C:\ffmpeg`
 3. Add `C:\ffmpeg\bin` to system PATH
 4. Restart terminal
-
-**macOS:**
-
+```
+#### 🍎 macOS
 ```bash
 brew install ffmpeg
 ```
 
-**Linux (Ubuntu/Debian):**
+#### 🐧 Linux
+```bash
+sudo apt update && sudo apt install ffmpeg
+```
+
+### 🩺 Verify Installation (Optional)
+
+We have included a script (`check_setup.py`) to verify if **FFmpeg** and all **Python dependencies** are correctly installed.
+
+Simply run:
 
 ```bash
-sudo apt update
-sudo apt install ffmpeg
+python check_setup.py
 ```
 
-**Verify installation:**
+**Expected Output:**
+If your environment is ready, you should see green checkmarks like this:
 
-```bash
-ffmpeg -version
+```text
+✅ FFmpeg is installed and recognized.
+✅ Library 'requests' is installed.
+✅ Library 'yt_dlp' is installed.
+✅ Library 'faster_whisper' is installed.
 ```
-
-### 4. (Optional) Check Installation
-
-Create `check_setup.py`:
-
-```python
-import subprocess
-import sys
-
-# Check FFmpeg
-try:
-    subprocess.run(["ffmpeg", "-version"], capture_output=True)
-    print("✅ FFmpeg installed")
-except FileNotFoundError:
-    print("❌ FFmpeg not found")
-
-# Check Python packages
-packages = ["requests", "yt_dlp", "faster_whisper"]
-for pkg in packages:
-    try:
-        __import__(pkg)
-        print(f"✅ {pkg} installed")
-    except ImportError:
-        print(f"⚠️  {pkg} not installed")
-```
-
-Run: `python check_setup.py`
 
 ---
 
-## Usage
+## 📖 Usage
 
 ### Basic Usage
 
@@ -173,29 +152,22 @@ python run.py
 
 The script will guide you through an interactive setup:
 
-1. **Select Crop Mode** (1-3):
+1.  **Select Crop Mode** (1-3):
+    - `1` - Default (center crop)
+    - `2` - Split 1 (top: center, bottom: bottom-left facecam)
+    - `3` - Split 2 (top: center, bottom: bottom-right facecam)
 
-   - `1` - Default (center crop)
-   - `2` - Split 1 (top: center, bottom: bottom-left facecam)
-   - `3` - Split 2 (top: center, bottom: bottom-right facecam)
+2.  **Enable Auto Subtitle** (y/n):
+    - `y` - Generate AI-powered subtitles
+    - `n` - Skip subtitle generation
 
-2. **Enable Auto Subtitle** (y/n):
+3.  **Enter YouTube URL**: Paste the link.
 
-   - `y` - Generate AI-powered subtitles
-   - `n` - Skip subtitle generation
+4.  **Processing**: The script takes over from here.
 
-3. **Enter YouTube URL**
+### 💻 Example Session
 
-4. **Processing**:
-   - Fetches heatmap data
-   - Downloads high-engagement segments
-   - Applies selected crop mode
-   - Generates and burns subtitles (if enabled)
-   - Saves clips to `clips/` directory
-
-### Example Session
-
-```
+```text
 === Crop Mode ===
 1. Default (center crop)
 2. Split 1 (top: center, bottom: bottom-left (facecam))
@@ -212,7 +184,7 @@ Add auto subtitle using Faster-Whisper? (y/n): y
 ✅ Faster-Whisper package installed.
 ✅ Model 'tiny' already cached and ready.
 
-Link YT: https://www.youtube.com/watch?v=...
+Link YT: [https://www.youtube.com/watch?v=dQw4w9WgXcQ](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
 Reading YouTube heatmap data...
 Found 6 high-engagement segments.
 Processing clips with 10s pre-padding and 10s post-padding.
@@ -228,12 +200,11 @@ Generated clips will be saved in the `clips/` directory.
 
 ---
 
-## Configuration
+## 🔧 Configuration
 
 You can modify these settings at the top of `run.py`:
 
 ### Basic Settings
-
 ```python
 OUTPUT_DIR = "clips"      # Output directory for generated clips
 MAX_DURATION = 60         # Maximum clip duration (seconds)
@@ -243,16 +214,13 @@ PADDING = 10              # Seconds added before and after each segment
 ```
 
 ### Crop Mode Settings
-
 ```python
 TOP_HEIGHT = 960          # Height for top section in split mode (px)
 BOTTOM_HEIGHT = 320       # Height for bottom section (facecam) in split mode (px)
 ```
-
 > **Note**: `TOP_HEIGHT + BOTTOM_HEIGHT = 1280` (total vertical resolution)
 
 ### Subtitle Settings
-
 ```python
 USE_SUBTITLE = True       # Enable auto subtitle (can be overridden at runtime)
 WHISPER_MODEL = "tiny"    # Whisper model: tiny, base, small, medium, large
@@ -260,22 +228,21 @@ WHISPER_MODEL = "tiny"    # Whisper model: tiny, base, small, medium, large
 
 ### Whisper Model Comparison
 
-| Model        | Size   | RAM     | Speed (60s) | Accuracy  | Best For                |
-| ------------ | ------ | ------- | ----------- | --------- | ----------------------- |
-| **tiny**     | 75 MB  | ~500 MB | ~5-7s       | Good      | Quick clips, low-end PC |
-| **base**     | 142 MB | ~700 MB | ~8-10s      | Better    | General purpose         |
-| **small**    | 466 MB | ~1.5 GB | ~15-20s     | Great     | Quality content         |
-| **medium**   | 1.5 GB | ~3 GB   | ~40-50s     | Excellent | Professional work       |
-| **large-v3** | 2.9 GB | ~6 GB   | ~90-120s    | Best      | Production quality      |
+| Model | Size | RAM | Speed (60s) | Accuracy | Best For |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **tiny** | 75 MB | ~500 MB | ~5-7s | Good | Quick clips, low-end PC |
+| **base** | 142 MB | ~700 MB | ~8-10s | Better | General purpose |
+| **small** | 466 MB | ~1.5 GB | ~15-20s | Great | Quality content |
+| **medium** | 1.5 GB | ~3 GB | ~40-50s | Excellent | Professional work |
+| **large-v3** | 2.9 GB | ~6 GB | ~90-120s | Best | Production quality |
 
-> **Recommendation**: Use `tiny` for speed, `small` for quality balance
+> **Recommendation**: Use `tiny` for speed, `small` for quality balance.
 
 ---
 
-## Output
+## 📂 Output
 
 ### Video Specifications
-
 - **Format**: MP4 (H.264 video + AAC audio)
 - **Resolution**: 720x1280 (9:16 vertical)
 - **Video Codec**: libx264, CRF 26, ultrafast preset
@@ -283,120 +250,97 @@ WHISPER_MODEL = "tiny"    # Whisper model: tiny, base, small, medium, large
 - **Subtitle**: Burned-in (if enabled), white text with black outline
 
 ### File Naming
-
-```
+```text
 clips/
 ├── clip_1.mp4
 ├── clip_2.mp4
 └── clip_3.mp4
 ```
 
-Clips are numbered based on their engagement score (highest first).
-
 ---
 
-## Crop Mode Visualization
+## 📐 Visualization
 
 ### Mode 1: Default (Center Crop)
+Best for Vlogs, Podcasts, or general videos.
+**Output Resolution:** 720 x 1280 px.
 
-```
-Original Video (16:9)         Output (9:16)
-┌─────────────────────┐       ┌──────┐
-│   [   CONTENT   ]   │  -->  │CONTENT│
-└─────────────────────┘       └──────┘
-       crop center             full height
-```
-
-### Mode 2: Split Left (Facecam Bottom-Left)
-
-```
-Original Video (16:9)                Output (9:16)
-┌─────────────────────────┐         ┌──────────┐
-│                         │         │  GAME    │ 960px
-│       GAME AREA         │   -->   │ CONTENT  │
-│  [👤]                   │         ├──────────┤
-└─────────────────────────┘         │ 👤 FACE  │ 350px
-    facecam bottom-left             └──────────┘
+```text
+[ Original 16:9 ]             [ Output 9:16 ]
+┌───────────────────────┐     ┌───────────┐
+│           │           │     │           │
+│           │           │     │           │
+│        CONTENT        │ ──► │  CONTENT  │ ↕ 1280px
+│           │           │     │           │
+│           │           │     │           │
+└───────────────────────┘     └───────────┘
+        (Center)
 ```
 
-### Mode 3: Split Right (Facecam Bottom-Right)
+### Mode 2: Split Left (Gaming/Reaction)
+Best for streamers with **Facecam on the Bottom-Left**.
+**Output Resolution:** 720 x 1280 px.
 
+```text
+[ Original 16:9 ]             [ Output 9:16 ]
+┌───────────────────────┐     ┌───────────┐
+│           │           │     │  CONTENT  │ ↕ 960px
+│        CONTENT        │ ──► │ (Center)  │
+│           │           │     ├───────────┤
+├───┐                   │     │  FACECAM  │ ↕ 320px
+│CAM│                   │     │ (Bot-Left)│
+└───┴───────────────────┘     └───────────┘
 ```
-Original Video (16:9)                Output (9:16)
-┌─────────────────────────┐         ┌──────────┐
-│                         │         │  GAME    │ 960px
-│       GAME AREA         │   -->   │ CONTENT  │
-│                   [👤]  │         ├──────────┤
-└─────────────────────────┘         │ FACE 👤  │ 350px
-    facecam bottom-right            └──────────┘
+
+### Mode 3: Split Right (Gaming/Reaction)
+Best for streamers with **Facecam on the Bottom-Right**.
+**Output Resolution:** 720 x 1280 px.
+
+```text
+[ Original 16:9 ]             [ Output 9:16 ]
+┌───────────────────────┐     ┌───────────┐
+│           │           │     │  CONTENT  │ ↕ 960px
+│        CONTENT        │ ──► │ (Center)  │
+│           │           │     ├───────────┤
+│                   ┌───┤     │  FACECAM  │ ↕ 320px
+│                   │CAM│     │(Bot-Right)│
+└───────────────────┴───┘     └───────────┘
 ```
 
 ---
 
-## Troubleshooting
+## ❓ Troubleshooting
 
 ### FFmpeg not found
-
-```bash
-# Windows: Download from https://ffmpeg.org/download.html
-# Add to PATH or place ffmpeg.exe in script directory
-
-# macOS:
-brew install ffmpeg
-
-# Linux:
-sudo apt install ffmpeg
-```
+- **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html), add `bin` folder to PATH.
+- **macOS**: `brew install ffmpeg`
+- **Linux**: `sudo apt install ffmpeg`
 
 ### No high-engagement segments found
-
-- Video might not have "Most Replayed" data yet (needs views/engagement)
-- Try lowering `MIN_SCORE` (e.g., from 0.40 to 0.30)
-- Check if video URL is correct
+- Video might not have "Most Replayed" data yet (needs views/engagement).
+- Try lowering `MIN_SCORE` (e.g., from 0.40 to 0.30).
+- Check if video URL is correct.
 
 ### Subtitle generation fails
-
-- Ensure internet connection for first-time model download
-- Check available RAM (whisper needs ~500MB-2GB depending on model)
-- Try smaller model: change `WHISPER_MODEL` from `small` to `tiny`
-
-### Slow transcription
-
-- Use smaller model (`tiny` instead of `small`)
-- Faster-Whisper is already 4-5x faster than standard Whisper
-- Consider upgrading RAM or using GPU version
-
-### Video download fails
-
-- Check internet connection
-- Verify YouTube URL is accessible
-- Some videos might be region-locked or have restrictions
-- Try updating yt-dlp: `pip install -U yt-dlp`
+- Ensure internet connection for first-time model download.
+- Check available RAM (Whisper needs ~500MB-2GB depending on model).
+- Try smaller model: change `WHISPER_MODEL` from `small` to `tiny`.
 
 ---
 
-## Tips & Best Practices
+## 💡 Tips & Best Practices
 
 ### For Gaming Content
-
-- Use **Split Right** or **Split Left** mode (facecam in corner)
-- Keep `PADDING = 10` for context before/after action
-- Use `small` or `base` model for accurate gaming terminology
+- Use **Split Right** or **Split Left** mode (facecam in corner).
+- Keep `PADDING = 10` for context before/after action.
+- Use `small` or `base` model for accurate gaming terminology.
 
 ### For Tutorial/Vlog Content
-
-- Use **Default** center crop mode
-- Increase `MAX_DURATION = 90` for longer explanations
-- Enable subtitles with `tiny` model for fast processing
-
-### For Fast-Paced Content
-
-- Reduce `PADDING = 5` to keep clips tight
-- Increase `MIN_SCORE = 0.50` for only peak moments
-- Use `tiny` model to match quick content style
+- Use **Default** center crop mode.
+- Increase `MAX_DURATION = 90` for longer explanations.
+- Enable subtitles with `tiny` model for fast processing.
 
 ### Subtitle Customization
-
 Edit line ~368 in `run.py` to customize subtitle style:
 
 ```python
@@ -415,10 +359,9 @@ PrimaryColour=&H00FFFF
 
 ---
 
-## Contributing
+## 🤝 Contribution
 
 Contributions are welcome! Feel free to:
-
 - Report bugs
 - Suggest features
 - Submit pull requests
@@ -426,23 +369,21 @@ Contributions are welcome! Feel free to:
 
 ---
 
-## License
-
+## 📜 License
 MIT License
 
 ---
 
-## Credits
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube video downloader
-- [FFmpeg](https://ffmpeg.org/) - Video processing
-- [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) - AI transcription
-- [OpenAI Whisper](https://github.com/openai/whisper) - Speech recognition model
+## 🙏 Credits
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** - YouTube video downloader
+- **[FFmpeg](https://ffmpeg.org/)** - Video processing
+- **[Faster-Whisper](https://github.com/guillaumekln/faster-whisper)** - AI transcription
+- **[OpenAI Whisper](https://github.com/openai/whisper)** - Speech recognition model
 
 ---
 
-## Support
+## 🌟 Support
 
-If you find this tool useful, please ⭐ star this repository!
+If you find this tool useful, please **⭐ star this repository!**
 
 For issues and questions, please open an issue on GitHub.
