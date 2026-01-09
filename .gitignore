@@ -58,5 +58,4 @@ models/
 
 # Test files
 test.py
-check_*.py
 debug_*.py
