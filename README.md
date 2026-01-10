@@ -92,7 +92,7 @@ Instagram Reels, and TikTok.
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/yt-heatmap-clipper.git
+git clone https://github.com/habibulfauzan/yt-heatmap-clipper.git
 cd yt-heatmap-clipper
 ```
 
