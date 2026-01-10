@@ -60,3 +60,5 @@ models/
 test.py
 check_*.py
 debug_*.py
+
+watermark.png

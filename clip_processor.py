@@ -5,7 +5,10 @@ import os
 import sys
 import subprocess
 
-from config import OUTPUT_DIR, PADDING, TOP_HEIGHT, BOTTOM_HEIGHT
+from config import (
+    OUTPUT_DIR, PADDING, TOP_HEIGHT, BOTTOM_HEIGHT, 
+    WATERMARK_FILE, WATERMARK_WIDTH_PERCENT, WATERMARK_PADDING_X, WATERMARK_PADDING_Y
+)
 from subtitle_utils import generate_subtitle
 
 
@@ -127,24 +130,51 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
 
         os.remove(temp_file)
 
+        # Check if watermark file exists
+        watermark_exists = os.path.exists(WATERMARK_FILE)
+        if not watermark_exists:
+            print(f"  Warning: Watermark file '{WATERMARK_FILE}' not found. Proceeding without watermark.")
+
         # Generate and burn subtitle if enabled
         if use_subtitle:
             print("  Generating subtitle...")
             if generate_subtitle(cropped_file, subtitle_file):
-                print("  Burning subtitle to video...")
-                # Get absolute path for subtitle file
+                print("  Burning subtitle" + (" and adding watermark..." if watermark_exists else "..."))
+                # Get absolute paths
                 abs_subtitle_path = os.path.abspath(subtitle_file)
+                
                 # Escape for FFmpeg: replace \ with / and escape special chars
                 subtitle_path = abs_subtitle_path.replace("\\", "/").replace(":", "\\:")
                 
-                cmd_subtitle = [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                    "-i", cropped_file,
-                    "-vf", f"subtitles='{subtitle_path}':force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
-                    "-c:a", "copy",
-                    output_file
-                ]
+                if watermark_exists:
+                    # Combine subtitle and watermark filters
+                    # Scale watermark based on video width percentage, then overlay
+                    vf = (
+                        f"[0:v]subtitles='{subtitle_path}':force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'[sub];"
+                        f"[1:v]scale=iw*{WATERMARK_WIDTH_PERCENT}:-1[wm];"
+                        f"[sub][wm]overlay=W-w-{WATERMARK_PADDING_X}:H-h-{WATERMARK_PADDING_Y}[out]"
+                    )
+                    
+                    cmd_subtitle = [
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        "-i", cropped_file,
+                        "-i", WATERMARK_FILE,
+                        "-filter_complex", vf,
+                        "-map", "[out]", "-map", "0:a?",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                        "-c:a", "copy",
+                        output_file
+                    ]
+                else:
+                    # Subtitle only, no watermark
+                    cmd_subtitle = [
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        "-i", cropped_file,
+                        "-vf", f"subtitles='{subtitle_path}':force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                        "-c:a", "copy",
+                        output_file
+                    ]
                 
                 result = subprocess.run(
                     cmd_subtitle,
@@ -157,12 +187,63 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 os.remove(cropped_file)
                 os.remove(subtitle_file)
             else:
-                # If subtitle generation failed, use cropped file as output
-                print("  Subtitle generation failed, continuing without subtitle...")
-                os.rename(cropped_file, output_file)
+                # If subtitle generation failed, add watermark only (if exists)
+                if watermark_exists:
+                    print("  Subtitle generation failed, adding watermark...")
+                    # Scale watermark based on video width percentage
+                    vf_wm = f"[1:v]scale=iw*{WATERMARK_WIDTH_PERCENT}:-1[wm];[0:v][wm]overlay=W-w-{WATERMARK_PADDING_X}:H-h-{WATERMARK_PADDING_Y}[out]"
+                    cmd_watermark = [
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        "-i", cropped_file,
+                        "-i", WATERMARK_FILE,
+                        "-filter_complex", vf_wm,
+                        "-map", "[out]", "-map", "0:a?",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                        "-c:a", "copy",
+                        output_file
+                    ]
+                    
+                    result = subprocess.run(
+                        cmd_watermark,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    
+                    os.remove(cropped_file)
+                else:
+                    # No subtitle and no watermark, just rename
+                    os.rename(cropped_file, output_file)
         else:
-            # No subtitle, rename cropped file to output
-            os.rename(cropped_file, output_file)
+            # No subtitle, add watermark only (if exists)
+            if watermark_exists:
+                print("  Adding watermark...")
+                # Scale watermark based on video width percentage
+                vf_wm = f"[1:v]scale=iw*{WATERMARK_WIDTH_PERCENT}:-1[wm];[0:v][wm]overlay=W-w-{WATERMARK_PADDING_X}:H-h-{WATERMARK_PADDING_Y}[out]"
+                cmd_watermark = [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", cropped_file,
+                    "-i", WATERMARK_FILE,
+                    "-filter_complex", vf_wm,
+                    "-map", "[out]", "-map", "0:a?",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                    "-c:a", "copy",
+                    output_file
+                ]
+                
+                result = subprocess.run(
+                    cmd_watermark,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                
+                os.remove(cropped_file)
+            else:
+                # No subtitle and no watermark, just rename
+                os.rename(cropped_file, output_file)
 
         print("Clip successfully generated.")
         return True

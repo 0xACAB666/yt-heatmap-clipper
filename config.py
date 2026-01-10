@@ -21,3 +21,9 @@ USE_SUBTITLE = True       # Enable auto subtitle using Faster-Whisper (4-5x fast
 WHISPER_MODEL = "tiny"   # Whisper model size: tiny, base, small, medium, large
 USE_AI_FALLBACK = True    # Use AI-based engagement detection if heatmap unavailable
 AI_MIN_SCORE = 0.50       # Minimum AI engagement score (0.0-1.0)
+
+# Watermark settings
+WATERMARK_FILE = "watermark.png"     # Path to watermark image file
+WATERMARK_WIDTH_PERCENT = 0.50  # Watermark width as percentage of video width (0.15 = 15%)
+WATERMARK_PADDING_X = 0      # Horizontal padding from right edge (in pixels)
+WATERMARK_PADDING_Y = 300     # Vertical padding from bottom edge (in pixels)
