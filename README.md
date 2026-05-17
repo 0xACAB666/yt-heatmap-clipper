@@ -12,25 +12,11 @@ This tool parses YouTube audience engagement markers to detect high-interest mom
 
 ## ✨ Features
 
-### Core Features
-- Extracts YouTube **Most Replayed (heatmap)** segments
-- Automatically selects **high-engagement moments**
-- Configurable **pre and post padding** for each clip
-- Outputs **9:16 vertical video format** (720x1280)
-- **No YouTube API key required**
-- Supports standard YouTube videos and Shorts
-
-### Advanced Features
-- **3 Crop Modes**:
-  - **Default**: Center crop from original video
-  - **Split Left**: Top = center content, Bottom = bottom-left (facecam)
-  - **Split Right**: Top = center content, Bottom = bottom-right (facecam)
-- **AI Auto Subtitle** (Faster-Whisper):
-  - 4-5x faster than standard Whisper
-  - Support for Indonesian language (and 99+ languages)
-  - Multiple model sizes: tiny, base, small, medium, large
-  - Automatic transcription and subtitle burning
-  - Customizable subtitle style
+### core-engine (Shared Logic)
+- **Reusable engine**: The CLI and Dashboard both use a shared core for heatmap parsing, video processing, and transcription.
+- **Isolated Job Execution**: Each browser session or dashboard job runs in its own workspace, preventing file conflicts during concurrent use.
+- **Dynamic Device Detection**: Automatically selects between CUDA and CPU for transcription based on local hardware capabilities.
+- **Intelligent Model Fallback**: Recommends appropriate Whisper models (e.g., `small` for GPU, `base` for CPU) to balance quality and speed.
 
 ---
 
@@ -38,7 +24,7 @@ This tool parses YouTube audience engagement markers to detect high-interest mom
 
 1.  **Parse Heatmap Data**: Fetches YouTube watch page and extracts "Most Replayed" markers.
 2.  **Filter Segments**: Identifies high-engagement moments based on score threshold.
-3.  **User Selection**: Interactive menu for crop mode and subtitle preferences.
+3.  **Job Orchestration**: Hands off the request to a shared engine that manages downloading and rendering.
 4.  **Smart Download**: Downloads only the required time ranges (with padding).
 5.  **Video Processing**:
     - Scales to 1920px width (maintains aspect ratio).
@@ -46,7 +32,7 @@ This tool parses YouTube audience engagement markers to detect high-interest mom
     - Converts to 720x1280 vertical format.
 6.  **AI Transcription** (optional):
     - Transcribes audio using Faster-Whisper.
-    - Generates SRT subtitle file.
+    - Automatically recommends the best compute type (e.g., `float16` for GPU or `int8` for CPU).
     - Burns subtitles with customizable style.
 7.  **Export**: Saves optimized MP4 clips ready for social media.
 
@@ -61,11 +47,15 @@ This tool parses YouTube audience engagement markers to detect high-interest mom
 ### Python Dependencies:
 - `requests` - HTTP requests
 - `yt-dlp` - YouTube video downloader
-- `faster-whisper` - AI transcription (optional, for subtitles)
+- `fastapi` - local dashboard web framework
+- `uvicorn` - local ASGI server for the dashboard
+- `python-multipart` - HTML form parsing for the dashboard
+- `httpx` - HTTP client used by the dashboard test client
+- `faster-whisper` - AI transcription (optional)
 
 ### Hardware Requirements:
 - **Minimum**: 2 GB RAM, 1 GB free disk space
-- **Recommended** (with subtitle): 4 GB RAM, 2 GB free disk space
+- **Recommended**: 4 GB RAM, NVIDIA GPU (for CUDA acceleration)
 - Internet bandwidth: ~10 MB/s for smooth downloading
 
 ---
@@ -79,21 +69,16 @@ git clone https://github.com/0xACAB666/yt-heatmap-clipper.git
 cd yt-heatmap-clipper
 ```
 
-### Install Python Dependencies
+### Install Dependencies
 
 **Basic installation** (without subtitle support):
 ```bash
-pip install requests yt-dlp
+pip install -r requirements.txt
 ```
 
 **Full installation** (with AI subtitle support):
 ```bash
-pip install requests yt-dlp faster-whisper
-```
-
-Or use requirements file if available:
-```bash
-pip install -r requirements.txt
+pip install -r requirements.txt faster-whisper
 ```
 
 ### Install FFmpeg
@@ -101,13 +86,11 @@ pip install -r requirements.txt
 FFmpeg is the core engine for video processing and **must** be installed.
 
 #### 🪟 Windows
+1. Download from [ffmpeg.org](https://ffmpeg.org/download.html).
+2. Extract to `C:\ffmpeg`.
+3. Add `C:\ffmpeg\bin` to system PATH.
+4. Restart terminal.
 
-```bash
-1. Download from https://ffmpeg.org/download.html
-2. Extract to `C:\ffmpeg`
-3. Add `C:\ffmpeg\bin` to system PATH
-4. Restart terminal
-```
 #### 🍎 macOS
 ```bash
 brew install ffmpeg
@@ -118,54 +101,47 @@ brew install ffmpeg
 sudo apt update && sudo apt install ffmpeg
 ```
 
-### 🩺 Verify Installation (Optional)
+### 🩺 Verify Installation
 
-We have included a script (`check_setup.py`) to verify if **FFmpeg** and all **Python dependencies** are correctly installed.
-
-Simply run:
+Run the included check script to verify if **FFmpeg** and dependencies are ready:
 
 ```bash
 python check_setup.py
-```
-
-**Expected Output:**
-If your environment is ready, you should see green checkmarks like this:
-
-```text
-✅ FFmpeg is installed and recognized.
-✅ Library 'requests' is installed.
-✅ Library 'yt_dlp' is installed.
-✅ Library 'faster_whisper' is installed.
 ```
 
 ---
 
 ## 📖 Usage
 
-### Basic Usage
+### Basic Usage (CLI)
 
 ```bash
 python run.py
 ```
 
-### Interactive Workflow
-
 The script will guide you through an interactive setup:
+1.  **Select Crop Mode** (1-3).
+2.  **Enable Auto Subtitle** (y/n).
+3.  **Enter YouTube URL**.
 
-1.  **Select Crop Mode** (1-3):
-    - `1` - Default (center crop)
-    - `2` - Split 1 (top: center, bottom: bottom-left facecam)
-    - `3` - Split 2 (top: center, bottom: bottom-right facecam)
+### Local Dashboard (Web)
 
-2.  **Enable Auto Subtitle** (y/n):
-    - `y` - Generate AI-powered subtitles
-    - `n` - Skip subtitle generation
+For a browser-based experience with job tracking:
 
-3.  **Enter YouTube URL**: Paste the link.
+```bash
+uvicorn yt_heatmap_clipper.web.app:app
+```
 
-4.  **Processing**: The script takes over from here.
+Then open `http://127.0.0.1:8000` in your browser.
 
-### 💻 Example Session
+**Dashboard Features:**
+- **Job Status Tracking**: Monitor progress from "queued" to "completed".
+- **Real-time Logs**: See which clip is currently being processed.
+- **Workspace Isolation**: Each job is stored in its own directory (`clips/web/<job-id>/`).
+- **Downloadable Outputs**: Download generated clips directly from the dashboard.
+- **Environment Summary**: Displays detected hardware acceleration and recommended models.
+
+### 💻 CLI Example Session
 
 ```text
 === Crop Mode ===
@@ -177,14 +153,14 @@ Select crop mode (1-3): 3
 Selected: Split crop (bottom-right facecam)
 
 === Auto Subtitle ===
-Available model: tiny (~75 MB)
+Available model: base (~142 MB)
 Add auto subtitle using Faster-Whisper? (y/n): y
-✅ Subtitle enabled (Model: tiny, Bahasa Indonesia)
+✅ Subtitle enabled (Model: base, Bahasa Indonesia)
 
 ✅ Faster-Whisper package installed.
-✅ Model 'tiny' already cached and ready.
+✅ Model 'base' already cached and ready.
 
-Link YT: [https://www.youtube.com/watch?v=dQw4w9WgXcQ](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+Link YT: https://www.youtube.com/watch?v=dQw4w9WgXcQ
 Reading YouTube heatmap data...
 Found 6 high-engagement segments.
 Processing clips with 10s pre-padding and 10s post-padding.
@@ -196,13 +172,29 @@ Processing clips with 10s pre-padding and 10s post-padding.
 Clip successfully generated.
 ```
 
-Generated clips will be saved in the `clips/` directory.
+Generated clips are saved in the `clips/` directory.
+
+---
+
+## 🦾 Hardware Acceleration & Recommendations
+
+The tool automatically detects your hardware and configures the best path for AI transcription.
+
+### Acceleration Detection
+- **CUDA**: If an NVIDIA GPU is detected, the tool uses `float16` compute type for high-throughput transcription.
+- **CPU**: Fallback to `int8` quantization for efficient processing on standard processors.
+
+### Model Selection Logic
+- **Requested Model**: Overrides everything if you specify a model for a run (for example, the dashboard model override).
+- **Configured Model**: `WHISPER_MODEL` is an optional shared override. Leave it as `None` to use automatic hardware-based recommendation in ordinary CLI/dashboard flows.
+- **CUDA Default**: Recommends `small` for a balance of quality and speed.
+- **CPU Default**: Recommends `base` to keep transcription practical on most machines.
 
 ---
 
 ## 🔧 Configuration
 
-You can modify these settings at the top of `run.py`:
+You can modify these shared settings in `yt_heatmap_clipper/config.py`:
 
 ### Basic Settings
 ```python
@@ -223,7 +215,7 @@ BOTTOM_HEIGHT = 320       # Height for bottom section (facecam) in split mode (p
 ### Subtitle Settings
 ```python
 USE_SUBTITLE = True       # Enable auto subtitle (can be overridden at runtime)
-WHISPER_MODEL = "tiny"    # Whisper model: tiny, base, small, medium, large
+WHISPER_MODEL = None      # Optional override: tiny, base, small, medium, large; None = auto recommendation
 ```
 
 ### Whisper Model Comparison
@@ -324,7 +316,7 @@ Best for streamers with **Facecam on the Bottom-Right**.
 ### Subtitle generation fails
 - Ensure internet connection for first-time model download.
 - Check available RAM (Whisper needs ~500MB-2GB depending on model).
-- Try smaller model: change `WHISPER_MODEL` from `small` to `tiny`.
+- Try smaller model: set `WHISPER_MODEL = "tiny"` to override automatic selection.
 
 ---
 
@@ -341,19 +333,19 @@ Best for streamers with **Facecam on the Bottom-Right**.
 - Enable subtitles with `tiny` model for fast processing.
 
 ### Subtitle Customization
-Edit line ~368 in `run.py` to customize subtitle style:
+You can customize the subtitle appearance by editing the `force_style` parameter in `yt_heatmap_clipper/rendering.py`:
 
 ```python
-# Current style (white text, black outline):
-BorderStyle=1,Outline=3,Shadow=2,MarginV=30
+# Current default style (white text, black outline):
+FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100
 
-# Large text:
-FontSize=28,Outline=4
+# To use larger text:
+FontSize=24,Outline=3
 
-# Position higher (avoid facecam):
+# To position higher (avoiding facecam):
 MarginV=400
 
-# Different color (yellow):
+# To change color (e.g., yellow):
 PrimaryColour=&H00FFFF
 ```
 
