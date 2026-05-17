@@ -9,6 +9,9 @@ clips/
 temp_*.mp4
 temp_*.srt
 temp_cropped_*.mp4
+.web-work/
+.playwright-mcp/
+.sisyphus/
 
 # Python
 __pycache__/
