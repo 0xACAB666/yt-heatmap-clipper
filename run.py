@@ -282,11 +282,14 @@ def get_duration(video_id):
 def generate_subtitle(model, video_file, subtitle_file):
     """
     Generate subtitle file using a pre-loaded Faster-Whisper model.
-    Returns True if successful, False otherwise.
+    Returns the list of transcribed caption texts (in order, may be empty)
+    on success, or None if transcription failed.
     """
     try:
         tqdm.write("  Transcribing audio (4-5x faster than standard Whisper)...")
         segments, info = model.transcribe(video_file, language="id")
+
+        captions = []
 
         # Generate SRT format. segments is a lazy generator — each is only
         # actually transcribed as we iterate here, so this loop doubles as
@@ -302,11 +305,13 @@ def generate_subtitle(model, video_file, subtitle_file):
                 f.write(f"{i}\n")
                 f.write(f"{start_time} --> {end_time}\n")
                 f.write(f"{text}\n\n")
-        
-        return True
+
+                captions.append(text)
+
+        return captions
     except Exception as e:
         tqdm.write(f"  Failed to generate subtitle: {str(e)}")
-        return False
+        return None
 
 
 def format_timestamp(seconds):
@@ -471,13 +476,14 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
         # Generate and burn subtitle if enabled
         if use_subtitle:
             tqdm.write("  Generating subtitle...")
-            if generate_subtitle(whisper_model, cropped_file, subtitle_file):
+            captions = generate_subtitle(whisper_model, cropped_file, subtitle_file)
+            if captions is not None:
                 tqdm.write("  Burning subtitle to video...")
                 # Get absolute path for subtitle file
                 abs_subtitle_path = os.path.abspath(subtitle_file)
                 # Escape for FFmpeg: replace \ with / and escape special chars
                 subtitle_path = abs_subtitle_path.replace("\\", "/").replace(":", "\\:")
-                
+
                 cmd_subtitle = [
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                     "-i", cropped_file,
@@ -491,6 +497,11 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
 
                 os.remove(cropped_file)
                 os.remove(subtitle_file)
+
+                if captions:
+                    caption_file = os.path.join(OUTPUT_DIR, f"clip_{index}.txt")
+                    with open(caption_file, "w", encoding="utf-8") as f:
+                        f.write("\n".join(captions) + "\n")
             else:
                 # If subtitle generation failed, use cropped file as output
                 tqdm.write("  Subtitle generation failed, continuing without subtitle...")
