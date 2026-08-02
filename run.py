@@ -183,6 +183,70 @@ def ambil_most_replayed(video_id):
     return results
 
 
+def list_available_heights(video_id):
+    """
+    Query yt-dlp (restricted to the same SABR-safe player clients used for
+    the real download) for the video-track heights actually available for
+    this video. Returns a descending-sorted list of unique heights, or an
+    empty list if discovery fails/parses to nothing.
+    """
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--force-ipv4",
+        *YTDLP_CLIENT_ARGS,
+        "-F",
+        f"https://youtu.be/{video_id}"
+    ]
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except Exception:
+        return []
+
+    heights = set()
+    for line in res.stdout.splitlines():
+        match = re.search(r'\b(\d+)x(\d+)\b', line)
+        if match:
+            heights.add(int(match.group(2)))
+
+    return sorted(heights, reverse=True)
+
+
+def prompt_resolution(video_id):
+    """
+    Discover available resolutions for this video and let the user pick one,
+    defaulting to the highest. Returns the chosen height, or 1080 (today's
+    prior hardcoded cap) if discovery fails.
+    """
+    print("\nChecking available resolutions...")
+    heights = list_available_heights(video_id)
+
+    if not heights:
+        print("⚠️  Could not determine available resolutions; using default (up to 1080p).")
+        return 1080
+
+    if len(heights) == 1:
+        print(f"Only one resolution available for this video: {heights[0]}p. Using it.")
+        return heights[0]
+
+    print("\n=== Resolution ===")
+    print("Available for this video (via SABR-safe clients):")
+    for i, h in enumerate(heights, start=1):
+        suffix = " (default)" if i == 1 else ""
+        print(f"{i}. {h}p{suffix}")
+
+    while True:
+        raw = input("Select resolution [Enter for default]: ").strip()
+
+        if raw == "":
+            return heights[0]
+
+        if raw.isdigit() and 1 <= int(raw) <= len(heights):
+            return heights[int(raw) - 1]
+
+        print(f"Invalid choice. Enter a number between 1 and {len(heights)}, or press Enter for default.")
+
+
 def get_duration(video_id):
     """
     Retrieve the total duration of a YouTube video in seconds.
@@ -289,7 +353,7 @@ def stream_subprocess(cmd):
         raise subprocess.CalledProcessError(returncode, cmd)
 
 
-def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None):
+def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None, target_height=1080):
     """
     Download, crop, and export a single vertical clip
     based on a heatmap segment.
@@ -298,6 +362,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         crop_mode: "default", "split_left", or "split_right"
         use_subtitle: whether to generate and burn subtitle
         whisper_model: pre-loaded Faster-Whisper model (required if use_subtitle)
+        target_height: max video height to download, capping every fallback tier
     """
     start_original = item["start"]
     end_original = item["start"] + item["duration"]
@@ -326,7 +391,8 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         "--downloader-args",
         f"ffmpeg_i:-ss {start} -to {end} -hide_banner -loglevel error -stats",
         "-f",
-        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        f"bestvideo[height<={target_height}][ext=mp4]+bestaudio[ext=m4a]/"
+        f"best[height<={target_height}][ext=mp4]/best[height<={target_height}]",
         "-o", temp_file,
         f"https://youtu.be/{video_id}"
     ]
@@ -347,7 +413,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                 "-i", temp_file,
                 "-vf", "scale=-2:1280,crop=720:1280:(iw-720)/2:(ih-1280)/2",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
@@ -367,7 +433,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 "-i", temp_file,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
@@ -387,7 +453,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 "-i", temp_file,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
@@ -411,7 +477,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                     "-i", cropped_file,
                     "-vf", f"subtitles='{subtitle_path}':force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                     "-c:a", "copy",
                     output_file
                 ]
@@ -604,6 +670,8 @@ def main():
         print("Invalid YouTube link.")
         return
 
+    target_height = prompt_resolution(video_id)
+
     heatmap_data = ambil_most_replayed(video_id)
 
     if not heatmap_data:
@@ -643,7 +711,8 @@ def main():
                 total_duration,
                 crop_mode,
                 use_subtitle,
-                whisper_model
+                whisper_model,
+                target_height
             ):
                 success_count += 1
                 pbar.update(1)
