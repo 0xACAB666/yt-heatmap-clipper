@@ -1,7 +1,7 @@
 # Spec 002: User-Defined Clip Count (Highest → Lowest Heatmap)
 
 ## Status
-Draft → Implemented on `feature/progress-bar-and-clip-count`
+Draft → Implemented on `feature/progress-bar-and-clip-count` → Superseded by [Spec 003](003-manual-segment-selection.md) (the numeric "how many clips" prompt was replaced by chronological segment selection)
 
 ## Problem
 The number of clips generated per run is hardcoded (`MAX_CLIPS = 10`). Users can't ask for fewer (to save time) or more (up to however many segments qualify) without editing source.

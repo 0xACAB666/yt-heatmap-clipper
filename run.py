@@ -415,32 +415,100 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         return False
 
 
-def prompt_clip_count(available_count):
+def format_seconds_display(seconds):
     """
-    Ask the user how many clips to generate (1..MAX_CLIPS), re-prompting
-    on invalid input. Returns the effective target, capped at
-    available_count (segments are already sorted highest score first).
+    Format seconds as MM:SS, or HH:MM:SS for durations of an hour or more.
     """
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def parse_selection(raw, max_index):
+    """
+    Parse a comma-separated list of indices/ranges (e.g. "2,4,7" or "2-5,9")
+    into a set of unique integers within 1..max_index.
+    Returns None if the input is empty or any token is invalid/out of range.
+    """
+    indices = set()
+
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            return None
+
+        if "-" in token:
+            lo_raw, sep, hi_raw = token.partition("-")
+            lo_raw, hi_raw = lo_raw.strip(), hi_raw.strip()
+            if not lo_raw.isdigit() or not hi_raw.isdigit():
+                return None
+            lo, hi = int(lo_raw), int(hi_raw)
+            if lo > hi:
+                lo, hi = hi, lo
+            indices.update(range(lo, hi + 1))
+        else:
+            if not token.isdigit():
+                return None
+            indices.add(int(token))
+
+    if not indices or any(i < 1 or i > max_index for i in indices):
+        return None
+
+    return indices
+
+
+def select_segments(heatmap_data):
+    """
+    If more than one qualifying segment exists, list them chronologically
+    (start time ascending) with their timeframe and score, and let the user
+    pick which ones to clip — the heatmap tends to over-rate the video's
+    opening seconds since most viewers start there, so a plain top-score
+    pick can be misleading. With only one qualifying segment there's no
+    real choice to make, so it's used directly.
+
+    Returns the selected segments in chronological order.
+    """
+    if len(heatmap_data) <= 1:
+        return list(heatmap_data)
+
+    chronological = sorted(heatmap_data, key=lambda x: x["start"])
+
+    print("\n=== High-Engagement Segments (chronological) ===")
+    for i, item in enumerate(chronological, start=1):
+        start = item["start"]
+        end = item["start"] + item["duration"]
+        print(
+            f"{i}) {format_seconds_display(start)}-{format_seconds_display(end)} "
+            f"({int(start)}s-{int(end)}s, score {item['score']:.2f})"
+        )
+
     while True:
-        raw = input(f"How many clips do you want to generate? (1-{MAX_CLIPS}): ").strip()
+        raw = input(
+            f"\nWhich segment(s) do you want to clip? "
+            f"(e.g. 1,3 or 2-4; range 1-{len(chronological)}): "
+        ).strip()
 
-        if not raw.isdigit():
-            print(f"Invalid input. Please enter a number between 1 and {MAX_CLIPS}.")
-            continue
-
-        requested = int(raw)
-        if requested < 1 or requested > MAX_CLIPS:
-            print(f"Invalid input. Please enter a number between 1 and {MAX_CLIPS}.")
-            continue
-
-        if requested > available_count:
+        indices = parse_selection(raw, len(chronological))
+        if indices is None:
             print(
-                f"Only {available_count} qualifying segment(s) available "
-                f"— generating {available_count} clip(s)."
+                f"Invalid input. Enter numbers between 1 and {len(chronological)}, "
+                f"e.g. 1,3 or 2-4."
             )
-            return available_count
+            continue
 
-        return requested
+        selected_indices = sorted(indices)
+
+        if len(selected_indices) > MAX_CLIPS:
+            print(
+                f"Selected {len(selected_indices)} segment(s), but the max per run "
+                f"is {MAX_CLIPS} — keeping the first {MAX_CLIPS} in chronological order."
+            )
+            selected_indices = selected_indices[:MAX_CLIPS]
+
+        return [chronological[i - 1] for i in selected_indices]
 
 
 def main():
@@ -503,7 +571,7 @@ def main():
 
     print(f"Found {len(heatmap_data)} high-engagement segments.")
 
-    target_clips = prompt_clip_count(len(heatmap_data))
+    selected_segments = select_segments(heatmap_data)
 
     total_duration = get_duration(video_id)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -525,11 +593,8 @@ def main():
 
     success_count = 0
 
-    with tqdm(total=target_clips, desc="Generating clips", unit="clip") as pbar:
-        for item in heatmap_data:
-            if success_count >= target_clips:
-                break
-
+    with tqdm(total=len(selected_segments), desc="Generating clips", unit="clip") as pbar:
+        for item in selected_segments:
             if proses_satu_clip(
                 video_id,
                 item,
