@@ -413,7 +413,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                 "-i", temp_file,
                 "-vf", "scale=-2:1280,crop=720:1280:(iw-720)/2:(ih-1280)/2",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
@@ -433,7 +433,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 "-i", temp_file,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
@@ -453,7 +453,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 "-i", temp_file,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
@@ -477,7 +477,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                     "-i", cropped_file,
                     "-vf", f"subtitles='{subtitle_path}':force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                     "-c:a", "copy",
                     output_file
                 ]
