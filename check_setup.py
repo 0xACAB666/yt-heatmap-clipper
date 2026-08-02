@@ -48,6 +48,7 @@ def main():
     packages = [
         ("requests", "requests"),
         ("yt-dlp", "yt_dlp"),
+        ("tqdm", "tqdm"),
         ("faster-whisper", "faster_whisper")
     ]
     
