@@ -9,7 +9,7 @@ A single-script CLI tool (`run.py`) that turns a YouTube video into vertical sho
 ## Commands
 
 ```bash
-# Verify environment (FFmpeg + Python deps) before running
+# Verify environment (FFmpeg + Deno + Python deps) before running
 python check_setup.py
 
 # Run the tool (interactive prompts: crop mode, subtitle on/off, YouTube URL)
@@ -18,6 +18,9 @@ python run.py
 # Install dependencies
 pip install -r requirements.txt          # requests, yt-dlp (base)
 pip install faster-whisper               # add for AI subtitles
+
+# Deno (https://deno.land) must also be on PATH — required by yt-dlp to solve
+# YouTube's JS challenge; see cek_dependensi/YTDLP_CLIENT_ARGS below for why.
 ```
 
 There is no build step, test suite, or linter configured in this repo.
@@ -29,9 +32,9 @@ Everything lives in `run.py` as a linear pipeline, run top-to-bottom from `main(
 1. **`extract_video_id`** — parses a YouTube URL (watch, youtu.be, or /shorts/) into a video ID.
 2. **`ambil_most_replayed`** — fetches the video's watch page HTML and regex-extracts the `markers` JSON blob embedded in it (this is YouTube's internal heatmap data, not a public API). Filters segments by `MIN_SCORE` and sorts by engagement score descending. This scraping approach is brittle to YouTube markup changes — if it starts returning `[]` unexpectedly, the regex in this function is the first place to check.
 3. **`get_duration`** — shells out to `yt-dlp --get-duration` to get total video length, used to clamp clip end times.
-4. **`cek_dependensi`** — self-updates `yt-dlp` via pip on every run, checks/installs `faster-whisper` if subtitles are enabled, and hard-exits if FFmpeg isn't on PATH.
+4. **`cek_dependensi`** — self-updates `yt-dlp` via pip on every run, checks/installs `faster-whisper` if subtitles are enabled, and hard-exits if FFmpeg or Deno isn't on PATH (Deno runs yt-dlp's JS challenge solver — see `YTDLP_CLIENT_ARGS` below).
 5. **`proses_satu_clip`** — the per-clip worker, called once per heatmap segment (up to `MAX_CLIPS`):
-   - Downloads *only* the padded time range via `yt-dlp` using `ffmpeg`-based partial download (`--downloader ffmpeg` with `-ss`/`-to` args), not the full video.
+   - Downloads *only* the padded time range via `yt-dlp` using `ffmpeg`-based partial download (`--downloader ffmpeg` with `-ss`/`-to` args), not the full video. Passes `YTDLP_CLIENT_ARGS` (`--remote-components ejs:github` + `--extractor-args youtube:player_client=...`) to restrict extraction to player clients that serve plain-HTTP formats — YouTube's DASH formats (needed for >360p) are increasingly gated behind clients requiring its SABR streaming protocol, which plain `ffmpeg` can't speak; downloading those hangs indefinitely or silently yields a near-empty audio track instead of erroring. This caps output at 360p source (the only progressive/muxed format still served) in exchange for reliability — revisit if yt-dlp/YouTube's SABR situation changes.
    - Crops via FFmpeg according to `crop_mode`:
      - `default`: simple center crop to 720x1280.
      - `split_left` / `split_right`: uses `filter_complex` to `split` the scaled frame into two streams, crops one for the top (center content, `TOP_HEIGHT`) and one for the bottom (facecam corner, `BOTTOM_HEIGHT`), then `vstack`s them — for streamer/gaming content where a facecam occupies a corner. `TOP_HEIGHT + BOTTOM_HEIGHT` must equal 1280.

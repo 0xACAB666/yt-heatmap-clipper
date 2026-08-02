@@ -2,6 +2,8 @@ import subprocess
 import sys
 import importlib.util
 
+sys.stdout.reconfigure(encoding='utf-8')
+
 def check_ffmpeg():
     """
     Check if FFmpeg is installed and accessible via command line.
@@ -19,6 +21,27 @@ def check_ffmpeg():
     except (FileNotFoundError, subprocess.CalledProcessError):
         print("❌ FFmpeg NOT found in PATH.")
         print("   -> Please install FFmpeg and add it to your system PATH.")
+        return False
+
+def check_deno():
+    """
+    Check if Deno is installed and accessible via command line.
+    Required to solve YouTube's JS challenge; without it, downloads can
+    hang indefinitely or silently produce clips with no audio.
+    """
+    try:
+        subprocess.run(
+            ["deno", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+        print("✅ Deno is installed and recognized.")
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        print("❌ Deno NOT found in PATH.")
+        print("   -> Install: https://deno.land/#installation")
+        print("   -> Windows (PowerShell): irm https://deno.land/install.ps1 | iex")
         return False
 
 def check_library(package_name, import_name=None):
@@ -41,7 +64,10 @@ def main():
     
     # 1. Check FFmpeg
     ffmpeg_ok = check_ffmpeg()
-    
+
+    # 1b. Check Deno (needed to solve YouTube's JS challenge for downloads)
+    deno_ok = check_deno()
+
     # 2. Check Python Dependencies
     # List format: (Pip Package Name, Import Name)
     # Note: 'yt-dlp' imports as 'yt_dlp', 'faster-whisper' imports as 'faster_whisper'
@@ -59,13 +85,15 @@ def main():
 
     print("\n" + "="*40)
     
-    if ffmpeg_ok and all_packages_ok:
+    if ffmpeg_ok and deno_ok and all_packages_ok:
         print("🎉 GREAT! Your system is ready.")
         print("   You can now run: python run.py")
     else:
         print("❌ SETUP INCOMPLETE.")
         if not ffmpeg_ok:
             print("   - You need to install FFmpeg.")
+        if not deno_ok:
+            print("   - You need to install Deno.")
         if not all_packages_ok:
             print("   - You need to install Python dependencies.")
             print("     Run: pip install requests yt-dlp faster-whisper")

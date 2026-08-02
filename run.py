@@ -23,6 +23,19 @@ BOTTOM_HEIGHT = 320       # Height for bottom section (facecam) in split mode (T
 USE_SUBTITLE = True       # Enable auto subtitle using Faster-Whisper (4-5x faster)
 WHISPER_MODEL = "small"   # Whisper model size: tiny, base, small, medium, large
 
+# YouTube now serves DASH formats (separate video/audio, needed for >360p) only
+# to clients (e.g. "android_vr") that require its SABR streaming protocol, which
+# plain ffmpeg can't speak — downloads via those clients hang indefinitely or
+# silently produce a near-empty audio track instead of erroring. Restricting to
+# these clients + solving their JS challenge (via Deno, see cek_dependensi)
+# keeps downloads on plain HTTP: reliable, but capped at 360p (the only
+# progressive/muxed format YouTube still serves) until yt-dlp/YouTube's SABR
+# situation changes.
+YTDLP_CLIENT_ARGS = [
+    "--remote-components", "ejs:github",
+    "--extractor-args", "youtube:player_client=web,web_safari,tv_simply,mweb",
+]
+
 def extract_video_id(url):
     """
     Extract the YouTube video ID from a given URL.
@@ -106,6 +119,14 @@ def cek_dependensi(install_whisper=False):
 
     if not shutil.which("ffmpeg"):
         print("FFmpeg not found. Please install FFmpeg and ensure it is in PATH.")
+        sys.exit(1)
+
+    if not shutil.which("deno"):
+        print("Deno not found. YouTube downloads need it to solve YouTube's JS")
+        print("challenge — without it, downloads can hang indefinitely or silently")
+        print("produce clips with no audio.")
+        print("Install: https://deno.land/#installation")
+        print('  Windows (PowerShell): irm https://deno.land/install.ps1 | iex')
         sys.exit(1)
 
 
@@ -263,6 +284,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
         "--quiet", "--no-warnings",
+        *YTDLP_CLIENT_ARGS,
         "--downloader", "ffmpeg",
         "--downloader-args",
         f"ffmpeg_i:-ss {start} -to {end} -hide_banner -loglevel error",
