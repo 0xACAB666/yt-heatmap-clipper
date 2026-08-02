@@ -1,7 +1,7 @@
 # Spec 003: Manual Segment Selection From Heatmap List
 
 ## Status
-Draft
+Draft → Implemented on `feature/segment-selection`
 
 ## Problem
 `ambil_most_replayed` sorts qualifying heatmap segments by `score` descending, and the run simply takes the top N of that order (Spec 002). In practice, YouTube's "Most Replayed" heatmap is skewed toward the very beginning of a video — most viewers start playback at 0:00, so the opening seconds often register as high (or the highest) engagement even when nothing noteworthy happens there. Auto-picking by score alone can silently hand the user a batch of clips dominated by the misleading intro instead of the video's actual highlights.
