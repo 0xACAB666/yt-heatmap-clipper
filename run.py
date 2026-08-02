@@ -7,6 +7,7 @@ import requests
 import shutil
 from urllib.parse import urlparse, parse_qs
 import warnings
+from tqdm import tqdm
 
 sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings("ignore")
@@ -14,7 +15,7 @@ warnings.filterwarnings("ignore")
 OUTPUT_DIR = "clips"      # Directory where generated clips will be saved
 MAX_DURATION = 60         # Maximum duration (in seconds) for each clip
 MIN_SCORE = 0.40          # Minimum heatmap intensity score to be considered viral
-MAX_CLIPS = 10            # Maximum number of clips to generate per video
+MAX_CLIPS = 10            # Upper bound accepted for the user's requested clip count
 MAX_WORKERS = 1           # Number of parallel workers (reserved for future concurrency)
 PADDING = 10              # Extra seconds added before and after each detected segment
 TOP_HEIGHT = 960          # Height for top section (center content) in split mode
@@ -191,24 +192,17 @@ def get_duration(video_id):
     return 3600
 
 
-def generate_subtitle(video_file, subtitle_file):
+def generate_subtitle(model, video_file, subtitle_file):
     """
-    Generate subtitle file using Faster-Whisper for the given video.
+    Generate subtitle file using a pre-loaded Faster-Whisper model.
     Returns True if successful, False otherwise.
     """
     try:
-        from faster_whisper import WhisperModel
-        
-        print(f"  Loading Faster-Whisper model '{WHISPER_MODEL}'...")
-        print(f"  (If this is first time, downloading ~{get_model_size(WHISPER_MODEL)}...)")
-        # Use int8 for CPU efficiency, or "float16" for GPU
-        model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
-        
-        print("  ✅ Model loaded. Transcribing audio (4-5x faster than standard Whisper)...")
+        tqdm.write("  Transcribing audio (4-5x faster than standard Whisper)...")
         segments, info = model.transcribe(video_file, language="id")
-        
+
         # Generate SRT format
-        print("  Generating subtitle file...")
+        tqdm.write("  Generating subtitle file...")
         with open(subtitle_file, "w", encoding="utf-8") as f:
             for i, segment in enumerate(segments, start=1):
                 start_time = format_timestamp(segment.start)
@@ -221,7 +215,7 @@ def generate_subtitle(video_file, subtitle_file):
         
         return True
     except Exception as e:
-        print(f"  Failed to generate subtitle: {str(e)}")
+        tqdm.write(f"  Failed to generate subtitle: {str(e)}")
         return False
 
 
@@ -236,14 +230,15 @@ def format_timestamp(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
-def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default", use_subtitle=False):
+def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None):
     """
     Download, crop, and export a single vertical clip
     based on a heatmap segment.
-    
+
     Args:
         crop_mode: "default", "split_left", or "split_right"
         use_subtitle: whether to generate and burn subtitle
+        whisper_model: pre-loaded Faster-Whisper model (required if use_subtitle)
     """
     start_original = item["start"]
     end_original = item["start"] + item["duration"]
@@ -259,7 +254,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
     subtitle_file = f"temp_{index}.srt"
     output_file = os.path.join(OUTPUT_DIR, f"clip_{index}.mp4")
 
-    print(
+    tqdm.write(
         f"[Clip {index}] Processing segment "
         f"({int(start)}s - {int(end)}s, padding {PADDING}s)"
     )
@@ -287,7 +282,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         )
 
         if not os.path.exists(temp_file):
-            print("Failed to download video segment.")
+            tqdm.write("Failed to download video segment.")
             return False
 
         # Build video filter based on crop_mode
@@ -343,7 +338,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 cropped_file
             ]
 
-        print("  Cropping video...")
+        tqdm.write("  Cropping video...")
         result = subprocess.run(
             cmd_crop,
             check=True,
@@ -356,9 +351,9 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
 
         # Generate and burn subtitle if enabled
         if use_subtitle:
-            print("  Generating subtitle...")
-            if generate_subtitle(cropped_file, subtitle_file):
-                print("  Burning subtitle to video...")
+            tqdm.write("  Generating subtitle...")
+            if generate_subtitle(whisper_model, cropped_file, subtitle_file):
+                tqdm.write("  Burning subtitle to video...")
                 # Get absolute path for subtitle file
                 abs_subtitle_path = os.path.abspath(subtitle_file)
                 # Escape for FFmpeg: replace \ with / and escape special chars
@@ -385,13 +380,13 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 os.remove(subtitle_file)
             else:
                 # If subtitle generation failed, use cropped file as output
-                print("  Subtitle generation failed, continuing without subtitle...")
+                tqdm.write("  Subtitle generation failed, continuing without subtitle...")
                 os.rename(cropped_file, output_file)
         else:
             # No subtitle, rename cropped file to output
             os.rename(cropped_file, output_file)
 
-        print("Clip successfully generated.")
+        tqdm.write("Clip successfully generated.")
         return True
 
     except subprocess.CalledProcessError as e:
@@ -403,8 +398,8 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 except Exception:
                     pass
 
-        print(f"Failed to generate this clip.")
-        print(f"Error details: {e.stderr if e.stderr else e.stdout}")
+        tqdm.write("Failed to generate this clip.")
+        tqdm.write(f"Error details: {e.stderr if e.stderr else e.stdout}")
         return False
     except Exception as e:
         # Cleanup temp files
@@ -415,9 +410,37 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 except Exception:
                     pass
 
-        print(f"Failed to generate this clip.")
-        print(f"Error: {str(e)}")
+        tqdm.write("Failed to generate this clip.")
+        tqdm.write(f"Error: {str(e)}")
         return False
+
+
+def prompt_clip_count(available_count):
+    """
+    Ask the user how many clips to generate (1..MAX_CLIPS), re-prompting
+    on invalid input. Returns the effective target, capped at
+    available_count (segments are already sorted highest score first).
+    """
+    while True:
+        raw = input(f"How many clips do you want to generate? (1-{MAX_CLIPS}): ").strip()
+
+        if not raw.isdigit():
+            print(f"Invalid input. Please enter a number between 1 and {MAX_CLIPS}.")
+            continue
+
+        requested = int(raw)
+        if requested < 1 or requested > MAX_CLIPS:
+            print(f"Invalid input. Please enter a number between 1 and {MAX_CLIPS}.")
+            continue
+
+        if requested > available_count:
+            print(
+                f"Only {available_count} qualifying segment(s) available "
+                f"— generating {available_count} clip(s)."
+            )
+            return available_count
+
+        return requested
 
 
 def main():
@@ -480,8 +503,19 @@ def main():
 
     print(f"Found {len(heatmap_data)} high-engagement segments.")
 
+    target_clips = prompt_clip_count(len(heatmap_data))
+
     total_duration = get_duration(video_id)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    whisper_model = None
+    if use_subtitle:
+        from faster_whisper import WhisperModel
+        print(f"Loading Faster-Whisper model '{WHISPER_MODEL}'...")
+        print(f"(If this is first time, downloading ~{get_model_size(WHISPER_MODEL)}...)")
+        # Use int8 for CPU efficiency, or "float16" for GPU
+        whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+        print("Model loaded.\n")
 
     print(
         f"Processing clips with {PADDING}s pre-padding "
@@ -491,19 +525,22 @@ def main():
 
     success_count = 0
 
-    for item in heatmap_data:
-        if success_count >= MAX_CLIPS:
-            break
+    with tqdm(total=target_clips, desc="Generating clips", unit="clip") as pbar:
+        for item in heatmap_data:
+            if success_count >= target_clips:
+                break
 
-        if proses_satu_clip(
-            video_id,
-            item,
-            success_count + 1,
-            total_duration,
-            crop_mode,
-            use_subtitle
-        ):
-            success_count += 1
+            if proses_satu_clip(
+                video_id,
+                item,
+                success_count + 1,
+                total_duration,
+                crop_mode,
+                use_subtitle,
+                whisper_model
+            ):
+                success_count += 1
+                pbar.update(1)
 
     print(
         f"Finished processing. "
