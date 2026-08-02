@@ -23,18 +23,19 @@ BOTTOM_HEIGHT = 320       # Height for bottom section (facecam) in split mode (T
 USE_SUBTITLE = True       # Enable auto subtitle using Faster-Whisper (4-5x faster)
 WHISPER_MODEL = "small"   # Whisper model size: tiny, base, small, medium, large
 
-# YouTube now serves DASH formats (separate video/audio, needed for >360p) only
-# to clients (e.g. "android_vr") that require its SABR streaming protocol, which
-# plain ffmpeg can't speak — downloads via those clients hang indefinitely or
-# silently produce a near-empty audio track instead of erroring. Restricting to
-# these clients + solving their JS challenge (via Deno, see cek_dependensi)
-# keeps downloads on plain HTTP: reliable, but capped at 360p (the only
-# progressive/muxed format YouTube still serves) until yt-dlp/YouTube's SABR
-# situation changes.
-YTDLP_CLIENT_ARGS = [
-    "--remote-components", "ejs:github",
-    "--extractor-args", "youtube:player_client=web,web_safari,tv_simply,mweb",
-]
+# Needed for yt-dlp's Deno-based JS challenge solver (see cek_dependensi),
+# regardless of which player client ends up being used.
+YTDLP_REMOTE_COMPONENTS = ["--remote-components", "ejs:github"]
+
+# Resolutions above ~360p are typically only served as DASH (separate
+# video-only + audio-only) streams. Trying to network-trim a DASH stream to
+# just the padded clip range via ffmpeg (`-ss`/`-to` against the raw format
+# URL, or yt-dlp's own --download-sections) hangs indefinitely regardless of
+# player client — only a full, sequential download of the format is
+# reliable. So the video is downloaded once in full (download_full_video)
+# at the chosen resolution, and each clip is trimmed/cropped locally with
+# ffmpeg afterward (proses_satu_clip) instead of being fetched individually
+# over the network.
 
 def extract_video_id(url):
     """
@@ -185,15 +186,16 @@ def ambil_most_replayed(video_id):
 
 def list_available_heights(video_id):
     """
-    Query yt-dlp (restricted to the same SABR-safe player clients used for
-    the real download) for the video-track heights actually available for
-    this video. Returns a descending-sorted list of unique heights, or an
-    empty list if discovery fails/parses to nothing.
+    Query yt-dlp for the video-track heights actually available for this
+    video (no player-client restriction, since the full-video download this
+    feeds into works reliably across formats/clients — see
+    download_full_video). Returns a descending-sorted list of unique
+    heights, or an empty list if discovery fails/parses to nothing.
     """
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
-        *YTDLP_CLIENT_ARGS,
+        *YTDLP_REMOTE_COMPONENTS,
         "-F",
         f"https://youtu.be/{video_id}"
     ]
@@ -353,16 +355,42 @@ def stream_subprocess(cmd):
         raise subprocess.CalledProcessError(returncode, cmd)
 
 
-def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None, target_height=1080):
+def download_full_video(video_id, target_height, full_video_path):
     """
-    Download, crop, and export a single vertical clip
-    based on a heatmap segment.
+    Download the entire video once, at the given max height, via yt-dlp's
+    ordinary sequential downloader (no network-level time-range trimming —
+    see the module-level comment above YTDLP_REMOTE_COMPONENTS for why).
+    Raises subprocess.CalledProcessError on failure; returns nothing on
+    success. Caller is responsible for deleting full_video_path afterward.
+    """
+    cmd_download = [
+        sys.executable, "-m", "yt_dlp",
+        "--force-ipv4",
+        *YTDLP_REMOTE_COMPONENTS,
+        "--merge-output-format", "mp4",
+        "-f",
+        f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]",
+        "-o", full_video_path,
+        f"https://youtu.be/{video_id}"
+    ]
+
+    tqdm.write(f"Downloading full video (up to {target_height}p)...")
+    stream_subprocess(cmd_download)
+
+    if not os.path.exists(full_video_path):
+        raise RuntimeError("yt-dlp reported success but no output file was found.")
+
+
+def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None):
+    """
+    Crop and export a single vertical clip from the already-downloaded full
+    video, based on a heatmap segment.
 
     Args:
+        full_video_path: path to the full video downloaded by download_full_video
         crop_mode: "default", "split_left", or "split_right"
         use_subtitle: whether to generate and burn subtitle
         whisper_model: pre-loaded Faster-Whisper model (required if use_subtitle)
-        target_height: max video height to download, capping every fallback tier
     """
     start_original = item["start"]
     end_original = item["start"] + item["duration"]
@@ -373,7 +401,6 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
     if end - start < 3:
         return False
 
-    temp_file = f"temp_{index}.mp4"
     cropped_file = f"temp_cropped_{index}.mp4"
     subtitle_file = f"temp_{index}.srt"
     output_file = os.path.join(OUTPUT_DIR, f"clip_{index}.mp4")
@@ -383,42 +410,22 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         f"({int(start)}s - {int(end)}s, padding {PADDING}s)"
     )
 
-    cmd_download = [
-        sys.executable, "-m", "yt_dlp",
-        "--force-ipv4",
-        *YTDLP_CLIENT_ARGS,
-        "--downloader", "ffmpeg",
-        "--downloader-args",
-        f"ffmpeg_i:-ss {start} -to {end} -hide_banner -loglevel error -stats",
-        "-f",
-        f"bestvideo[height<={target_height}][ext=mp4]+bestaudio[ext=m4a]/"
-        f"best[height<={target_height}][ext=mp4]/best[height<={target_height}]",
-        "-o", temp_file,
-        f"https://youtu.be/{video_id}"
-    ]
-
     try:
-        tqdm.write("  Downloading segment...")
-        stream_subprocess(cmd_download)
-
-        if not os.path.exists(temp_file):
-            tqdm.write("Failed to download video segment.")
-            return False
-
-        # Build video filter based on crop_mode
-        # First, crop the video to cropped_file
+        # Trim the clip range and crop, in one local ffmpeg pass — no
+        # network involved, so -ss/-to against the full local file is fast
+        # and reliable regardless of source resolution/codec.
         if crop_mode == "default":
             # Standard center crop - ambil dari tengah video
             cmd_crop = [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
-                "-i", temp_file,
+                "-ss", str(start), "-to", str(end), "-i", full_video_path,
                 "-vf", "scale=-2:1280,crop=720:1280:(iw-720)/2:(ih-1280)/2",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
             ]
         elif crop_mode == "split_left":
-            # Split crop: 
+            # Split crop:
             # - Top: konten game dari tengah-tengah video (960px)
             # - Bottom: facecam dari kiri bawah video asli (320px)
             vf = (
@@ -430,7 +437,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
             )
             cmd_crop = [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
-                "-i", temp_file,
+                "-ss", str(start), "-to", str(end), "-i", full_video_path,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "20",
@@ -438,7 +445,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 cropped_file
             ]
         elif crop_mode == "split_right":
-            # Split crop: 
+            # Split crop:
             # - Top: konten game dari tengah-tengah video (960px)
             # - Bottom: facecam dari kanan bawah video asli (320px)
             vf = (
@@ -450,7 +457,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
             )
             cmd_crop = [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
-                "-i", temp_file,
+                "-ss", str(start), "-to", str(end), "-i", full_video_path,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "20",
@@ -460,8 +467,6 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
 
         tqdm.write("  Cropping video...")
         stream_subprocess(cmd_crop)
-
-        os.remove(temp_file)
 
         # Generate and burn subtitle if enabled
         if use_subtitle:
@@ -499,7 +504,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
 
     except subprocess.CalledProcessError as e:
         # Cleanup temp files
-        for f in [temp_file, cropped_file, subtitle_file]:
+        for f in [cropped_file, subtitle_file]:
             if os.path.exists(f):
                 try:
                     os.remove(f)
@@ -510,7 +515,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         return False
     except Exception as e:
         # Cleanup temp files
-        for f in [temp_file, cropped_file, subtitle_file]:
+        for f in [cropped_file, subtitle_file]:
             if os.path.exists(f):
                 try:
                     os.remove(f)
@@ -685,6 +690,13 @@ def main():
     total_duration = get_duration(video_id)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+    full_video_path = "temp_full_video.mp4"
+    try:
+        download_full_video(video_id, target_height, full_video_path)
+    except Exception as e:
+        print(f"Failed to download the video: {e}")
+        return
+
     whisper_model = None
     if use_subtitle:
         from faster_whisper import WhisperModel
@@ -702,20 +714,23 @@ def main():
 
     success_count = 0
 
-    with tqdm(total=len(selected_segments), desc="Generating clips", unit="clip") as pbar:
-        for item in selected_segments:
-            if proses_satu_clip(
-                video_id,
-                item,
-                success_count + 1,
-                total_duration,
-                crop_mode,
-                use_subtitle,
-                whisper_model,
-                target_height
-            ):
-                success_count += 1
-                pbar.update(1)
+    try:
+        with tqdm(total=len(selected_segments), desc="Generating clips", unit="clip") as pbar:
+            for item in selected_segments:
+                if proses_satu_clip(
+                    full_video_path,
+                    item,
+                    success_count + 1,
+                    total_duration,
+                    crop_mode,
+                    use_subtitle,
+                    whisper_model
+                ):
+                    success_count += 1
+                    pbar.update(1)
+    finally:
+        if os.path.exists(full_video_path):
+            os.remove(full_video_path)
 
     print(
         f"Finished processing. "
