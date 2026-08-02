@@ -222,14 +222,17 @@ def generate_subtitle(model, video_file, subtitle_file):
         tqdm.write("  Transcribing audio (4-5x faster than standard Whisper)...")
         segments, info = model.transcribe(video_file, language="id")
 
-        # Generate SRT format
-        tqdm.write("  Generating subtitle file...")
+        # Generate SRT format. segments is a lazy generator — each is only
+        # actually transcribed as we iterate here, so this loop doubles as
+        # live transcription progress.
         with open(subtitle_file, "w", encoding="utf-8") as f:
             for i, segment in enumerate(segments, start=1):
                 start_time = format_timestamp(segment.start)
                 end_time = format_timestamp(segment.end)
                 text = segment.text.strip()
-                
+
+                tqdm.write(f"    [{start_time} --> {end_time}] {text}")
+
                 f.write(f"{i}\n")
                 f.write(f"{start_time} --> {end_time}\n")
                 f.write(f"{text}\n\n")
@@ -249,6 +252,41 @@ def format_timestamp(seconds):
     secs = int(seconds % 60)
     millis = int((seconds % 1) * 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def stream_subprocess(cmd):
+    """
+    Run cmd, streaming its combined stdout+stderr live via tqdm.write() as it
+    arrives, instead of only showing output after the process exits. Needed
+    so the user sees what yt-dlp/ffmpeg are actually doing (extraction steps,
+    download/encode progress) instead of a silent wait behind the tqdm bar.
+
+    Python's universal-newline text mode splits readline() on a bare '\r' as
+    well as '\n', which is what ffmpeg's '-stats' progress line ends with —
+    so this streams that live too, not just newline-terminated messages.
+
+    Raises subprocess.CalledProcessError on non-zero exit. Unlike
+    subprocess.run(..., capture_output=True), the exception carries no
+    captured output — it was already shown live before the process exited.
+    """
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    for line in iter(process.stdout.readline, ""):
+        line = line.rstrip()
+        if line:
+            tqdm.write(f"    {line}")
+
+    process.stdout.close()
+    returncode = process.wait()
+
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, cmd)
 
 
 def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None):
@@ -283,11 +321,10 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
     cmd_download = [
         sys.executable, "-m", "yt_dlp",
         "--force-ipv4",
-        "--quiet", "--no-warnings",
         *YTDLP_CLIENT_ARGS,
         "--downloader", "ffmpeg",
         "--downloader-args",
-        f"ffmpeg_i:-ss {start} -to {end} -hide_banner -loglevel error",
+        f"ffmpeg_i:-ss {start} -to {end} -hide_banner -loglevel error -stats",
         "-f",
         "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "-o", temp_file,
@@ -295,13 +332,8 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
     ]
 
     try:
-        result = subprocess.run(
-            cmd_download,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        tqdm.write("  Downloading segment...")
+        stream_subprocess(cmd_download)
 
         if not os.path.exists(temp_file):
             tqdm.write("Failed to download video segment.")
@@ -312,7 +344,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         if crop_mode == "default":
             # Standard center crop - ambil dari tengah video
             cmd_crop = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                 "-i", temp_file,
                 "-vf", "scale=-2:1280,crop=720:1280:(iw-720)/2:(ih-1280)/2",
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
@@ -331,7 +363,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 f"[top][bottom]vstack=inputs=2[out]"
             )
             cmd_crop = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                 "-i", temp_file,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
@@ -351,7 +383,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 f"[top][bottom]vstack=inputs=2[out]"
             )
             cmd_crop = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                 "-i", temp_file,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
@@ -361,13 +393,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
             ]
 
         tqdm.write("  Cropping video...")
-        result = subprocess.run(
-            cmd_crop,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        stream_subprocess(cmd_crop)
 
         os.remove(temp_file)
 
@@ -382,22 +408,16 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 subtitle_path = abs_subtitle_path.replace("\\", "/").replace(":", "\\:")
                 
                 cmd_subtitle = [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                     "-i", cropped_file,
                     "-vf", f"subtitles='{subtitle_path}':force_style='FontName=Arial,FontSize=12,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=100'",
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
                     "-c:a", "copy",
                     output_file
                 ]
-                
-                result = subprocess.run(
-                    cmd_subtitle,
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                
+
+                stream_subprocess(cmd_subtitle)
+
                 os.remove(cropped_file)
                 os.remove(subtitle_file)
             else:
@@ -420,8 +440,7 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
                 except Exception:
                     pass
 
-        tqdm.write("Failed to generate this clip.")
-        tqdm.write(f"Error details: {e.stderr if e.stderr else e.stdout}")
+        tqdm.write(f"Failed to generate this clip (exit code {e.returncode}). See output above.")
         return False
     except Exception as e:
         # Cleanup temp files
@@ -437,32 +456,100 @@ def proses_satu_clip(video_id, item, index, total_duration, crop_mode="default",
         return False
 
 
-def prompt_clip_count(available_count):
+def format_seconds_display(seconds):
     """
-    Ask the user how many clips to generate (1..MAX_CLIPS), re-prompting
-    on invalid input. Returns the effective target, capped at
-    available_count (segments are already sorted highest score first).
+    Format seconds as MM:SS, or HH:MM:SS for durations of an hour or more.
     """
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def parse_selection(raw, max_index):
+    """
+    Parse a comma-separated list of indices/ranges (e.g. "2,4,7" or "2-5,9")
+    into a set of unique integers within 1..max_index.
+    Returns None if the input is empty or any token is invalid/out of range.
+    """
+    indices = set()
+
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            return None
+
+        if "-" in token:
+            lo_raw, sep, hi_raw = token.partition("-")
+            lo_raw, hi_raw = lo_raw.strip(), hi_raw.strip()
+            if not lo_raw.isdigit() or not hi_raw.isdigit():
+                return None
+            lo, hi = int(lo_raw), int(hi_raw)
+            if lo > hi:
+                lo, hi = hi, lo
+            indices.update(range(lo, hi + 1))
+        else:
+            if not token.isdigit():
+                return None
+            indices.add(int(token))
+
+    if not indices or any(i < 1 or i > max_index for i in indices):
+        return None
+
+    return indices
+
+
+def select_segments(heatmap_data):
+    """
+    If more than one qualifying segment exists, list them chronologically
+    (start time ascending) with their timeframe and score, and let the user
+    pick which ones to clip — the heatmap tends to over-rate the video's
+    opening seconds since most viewers start there, so a plain top-score
+    pick can be misleading. With only one qualifying segment there's no
+    real choice to make, so it's used directly.
+
+    Returns the selected segments in chronological order.
+    """
+    if len(heatmap_data) <= 1:
+        return list(heatmap_data)
+
+    chronological = sorted(heatmap_data, key=lambda x: x["start"])
+
+    print("\n=== High-Engagement Segments (chronological) ===")
+    for i, item in enumerate(chronological, start=1):
+        start = item["start"]
+        end = item["start"] + item["duration"]
+        print(
+            f"{i}) {format_seconds_display(start)}-{format_seconds_display(end)} "
+            f"({int(start)}s-{int(end)}s, score {item['score']:.2f})"
+        )
+
     while True:
-        raw = input(f"How many clips do you want to generate? (1-{MAX_CLIPS}): ").strip()
+        raw = input(
+            f"\nWhich segment(s) do you want to clip? "
+            f"(e.g. 1,3 or 2-4; range 1-{len(chronological)}): "
+        ).strip()
 
-        if not raw.isdigit():
-            print(f"Invalid input. Please enter a number between 1 and {MAX_CLIPS}.")
-            continue
-
-        requested = int(raw)
-        if requested < 1 or requested > MAX_CLIPS:
-            print(f"Invalid input. Please enter a number between 1 and {MAX_CLIPS}.")
-            continue
-
-        if requested > available_count:
+        indices = parse_selection(raw, len(chronological))
+        if indices is None:
             print(
-                f"Only {available_count} qualifying segment(s) available "
-                f"— generating {available_count} clip(s)."
+                f"Invalid input. Enter numbers between 1 and {len(chronological)}, "
+                f"e.g. 1,3 or 2-4."
             )
-            return available_count
+            continue
 
-        return requested
+        selected_indices = sorted(indices)
+
+        if len(selected_indices) > MAX_CLIPS:
+            print(
+                f"Selected {len(selected_indices)} segment(s), but the max per run "
+                f"is {MAX_CLIPS} — keeping the first {MAX_CLIPS} in chronological order."
+            )
+            selected_indices = selected_indices[:MAX_CLIPS]
+
+        return [chronological[i - 1] for i in selected_indices]
 
 
 def main():
@@ -525,7 +612,7 @@ def main():
 
     print(f"Found {len(heatmap_data)} high-engagement segments.")
 
-    target_clips = prompt_clip_count(len(heatmap_data))
+    selected_segments = select_segments(heatmap_data)
 
     total_duration = get_duration(video_id)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -547,11 +634,8 @@ def main():
 
     success_count = 0
 
-    with tqdm(total=target_clips, desc="Generating clips", unit="clip") as pbar:
-        for item in heatmap_data:
-            if success_count >= target_clips:
-                break
-
+    with tqdm(total=len(selected_segments), desc="Generating clips", unit="clip") as pbar:
+        for item in selected_segments:
             if proses_satu_clip(
                 video_id,
                 item,
