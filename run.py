@@ -5,6 +5,8 @@ import sys
 import subprocess
 import requests
 import shutil
+import wave
+import io
 from urllib.parse import urlparse, parse_qs
 import warnings
 from tqdm import tqdm
@@ -22,6 +24,12 @@ TOP_HEIGHT = 960          # Height for top section (center content) in split mod
 BOTTOM_HEIGHT = 320       # Height for bottom section (facecam) in split mode (Total: 1280px)
 USE_SUBTITLE = True       # Enable auto subtitle using Faster-Whisper (4-5x faster)
 WHISPER_MODEL = "small"   # Whisper model size: tiny, base, small, medium, large
+
+# speaker_follow crop mode tuning (see specs/008-speaker-follow-crop.md)
+FACE_SAMPLE_INTERVAL_SEC = 0.2        # How often (in video seconds) to sample frames for face/mouth tracking
+MAX_TRACKED_FACES = 4                 # Cap on simultaneously tracked faces
+MIN_SPEAKER_TURN_SEC = 1.5            # Minimum duration a speaker turn must hold before the crop switches again
+SPEAKER_CORRELATION_WINDOW_SEC = 1.5  # Sliding-window size for scoring mouth-movement vs. audio-energy correlation
 
 # Needed for yt-dlp's Deno-based JS challenge solver (see cek_dependensi),
 # regardless of which player client ends up being used.
@@ -72,7 +80,7 @@ def get_model_size(model):
     return sizes.get(model, "unknown size")
 
 
-def cek_dependensi(install_whisper=False):
+def cek_dependensi(install_whisper=False, install_speaker_follow=False):
     """
     Ensure required dependencies are available.
     Automatically updates yt-dlp and checks FFmpeg availability.
@@ -117,6 +125,28 @@ def cek_dependensi(install_whisper=False):
             )
             print(f"✅ Faster-Whisper package installed successfully.")
             print(f"⚠️  Model '{WHISPER_MODEL}' (~{get_model_size(WHISPER_MODEL)}) will be downloaded on first use.\n")
+
+    if install_speaker_follow:
+        # Check if mediapipe + opencv are installed (needed for speaker_follow
+        # crop mode's face/mouth tracking). Never fatal — proses_satu_clip
+        # falls back to the default center crop per-clip if these end up
+        # missing/broken, so a failed install here just prints a warning.
+        try:
+            import mediapipe  # noqa: F401
+            import cv2  # noqa: F401
+            print("✅ mediapipe + opencv-python installed (speaker_follow crop mode).\n")
+        except ImportError:
+            print("📦 Installing mediapipe + opencv-python (speaker_follow crop mode)...")
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "mediapipe", "opencv-python"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            if result.returncode == 0:
+                print("✅ mediapipe + opencv-python installed successfully.\n")
+            else:
+                print("⚠️  Could not install mediapipe/opencv-python — speaker_follow")
+                print("   will fall back to the default center crop for every clip.\n")
 
     if not shutil.which("ffmpeg"):
         print("FFmpeg not found. Please install FFmpeg and ensure it is in PATH.")
@@ -386,6 +416,252 @@ def download_full_video(video_id, target_height, full_video_path):
         raise RuntimeError("yt-dlp reported success but no output file was found.")
 
 
+def _extract_audio_energy(video_path, start, end, sample_times):
+    """
+    Extract mono 16kHz PCM audio for [start, end) and return a list of RMS
+    energy values, one per entry in sample_times (seconds, relative to
+    start), each measured over [t, t + FACE_SAMPLE_INTERVAL_SEC).
+    """
+    import numpy as np
+
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-ss", str(start), "-to", str(end), "-i", video_path,
+        "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", "pipe:1"
+    ]
+    res = subprocess.run(cmd, capture_output=True, timeout=120)
+    if res.returncode != 0 or not res.stdout:
+        raise RuntimeError("ffmpeg audio extraction failed")
+
+    with wave.open(io.BytesIO(res.stdout), "rb") as wf:
+        sample_rate = wf.getframerate()
+        samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float64)
+
+    energies = []
+    for t in sample_times:
+        lo = int(t * sample_rate)
+        hi = int((t + FACE_SAMPLE_INTERVAL_SEC) * sample_rate)
+        window = samples[lo:hi]
+        energies.append(float(np.sqrt(np.mean(window ** 2))) if window.size else 0.0)
+    return energies
+
+
+def _track_faces_and_mouths(video_path, start, end, sample_times):
+    """
+    Sample frames at sample_times (seconds, relative to start) and run
+    mediapipe FaceMesh on each. Faces are matched frame-to-frame into stable
+    tracks by nearest normalized center position.
+
+    Returns dict: track_id -> list of (sample_index, mar, center_x_fraction)
+    """
+    import cv2
+    import mediapipe as mp
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video for face tracking: {video_path}")
+
+    face_mesh = mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=MAX_TRACKED_FACES,
+        refine_landmarks=False,
+        min_detection_confidence=0.5,
+    )
+
+    # track_id -> {"center": (x, y) normalized, "last_seen": sample_index}
+    tracks = {}
+    next_track_id = 0
+    MATCH_THRESHOLD = 0.2   # normalized-distance threshold to match a face to an existing track
+    STALE_AFTER = 10        # samples without a match before a track is considered gone
+
+    track_data = {}
+
+    try:
+        for i, t in enumerate(sample_times):
+            cap.set(cv2.CAP_PROP_POS_MSEC, (start + t) * 1000)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            result = face_mesh.process(rgb)
+            if not result.multi_face_landmarks:
+                continue
+
+            for landmarks in result.multi_face_landmarks:
+                pts = landmarks.landmark
+                xs = [p.x for p in pts]
+                center_x = sum(xs) / len(xs)
+                center_y = sum(p.y for p in pts) / len(pts)
+
+                # MAR = vertical mouth opening / horizontal mouth width
+                mouth_w = abs(pts[61].x - pts[291].x) + 1e-6
+                mouth_h = abs(pts[13].y - pts[14].y)
+                mar = mouth_h / mouth_w
+
+                best_id, best_dist = None, MATCH_THRESHOLD
+                for tid, tstate in tracks.items():
+                    dist = ((tstate["center"][0] - center_x) ** 2 + (tstate["center"][1] - center_y) ** 2) ** 0.5
+                    if dist < best_dist:
+                        best_id, best_dist = tid, dist
+
+                if best_id is None:
+                    if len(tracks) >= MAX_TRACKED_FACES:
+                        continue
+                    best_id = next_track_id
+                    next_track_id += 1
+                    track_data[best_id] = []
+
+                tracks[best_id] = {"center": (center_x, center_y), "last_seen": i}
+                track_data[best_id].append((i, mar, center_x))
+
+            # Drop tracks that haven't been seen in a while so a departed
+            # face's old position doesn't keep absorbing new detections.
+            stale = [tid for tid, tstate in tracks.items() if i - tstate["last_seen"] > STALE_AFTER]
+            for tid in stale:
+                del tracks[tid]
+    finally:
+        face_mesh.close()
+        cap.release()
+
+    return track_data
+
+
+def detect_speaker_turns(video_path, start, end):
+    """
+    Detect active-speaker turns within [start, end) of video_path by
+    correlating each tracked face's mouth movement against audio energy over
+    a sliding window. See specs/008-speaker-follow-crop.md.
+
+    Returns a list of {"start", "end", "face_x"} dicts (times relative to
+    `start`, face_x a 0..1 fraction of frame width), covering the full
+    [0, end - start) range with no gaps, or None if detection is unavailable
+    or inconclusive (fewer than 2 distinguishable speaking faces).
+    """
+    try:
+        import numpy as np
+
+        duration = end - start
+        num_samples = int(duration / FACE_SAMPLE_INTERVAL_SEC)
+        if num_samples < 4:
+            return None
+        sample_times = [i * FACE_SAMPLE_INTERVAL_SEC for i in range(num_samples)]
+
+        track_data = _track_faces_and_mouths(video_path, start, end, sample_times)
+        # Need at least 2 faces with a meaningful number of samples to have
+        # anything to distinguish between.
+        usable_tracks = {tid: pts for tid, pts in track_data.items() if len(pts) >= 4}
+        if len(usable_tracks) < 2:
+            return None
+
+        energies = _extract_audio_energy(video_path, start, end, sample_times)
+
+        chunk_size = max(1, round(SPEAKER_CORRELATION_WINDOW_SEC / FACE_SAMPLE_INTERVAL_SEC))
+        chunk_winner = []  # winning track_id (or None) per chunk
+        chunk_bounds = []  # (start_idx, end_idx) per chunk
+
+        last_winner = None
+        for chunk_start in range(0, num_samples, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, num_samples)
+            chunk_bounds.append((chunk_start, chunk_end))
+
+            best_tid, best_score = None, -2.0
+            for tid, pts in usable_tracks.items():
+                in_chunk = [(idx, mar) for idx, mar, _cx in pts if chunk_start <= idx < chunk_end]
+                if len(in_chunk) < 3:
+                    continue
+                mar_vals = np.array([m for _idx, m in in_chunk])
+                energy_vals = np.array([energies[idx] for idx, _m in in_chunk])
+                if np.std(mar_vals) < 1e-9 or np.std(energy_vals) < 1e-9:
+                    continue
+                score = float(np.corrcoef(mar_vals, energy_vals)[0, 1])
+                if score > best_score:
+                    best_tid, best_score = tid, score
+
+            # Require a minimally positive correlation to actually switch
+            # speakers; otherwise hold on whoever was speaking last.
+            if best_tid is not None and best_score > 0.1:
+                chunk_winner.append(best_tid)
+                last_winner = best_tid
+            else:
+                chunk_winner.append(last_winner)
+
+        if len(set(w for w in chunk_winner if w is not None)) < 2:
+            return None
+
+        # Fill any leading None (no winner determined yet) with the first
+        # real winner found.
+        first_real = next((w for w in chunk_winner if w is not None), None)
+        if first_real is None:
+            return None
+        chunk_winner = [w if w is not None else first_real for w in chunk_winner]
+
+        def face_x_for(tid, lo_idx, hi_idx):
+            pts = [cx for idx, _mar, cx in usable_tracks[tid] if lo_idx <= idx < hi_idx]
+            return sum(pts) / len(pts) if pts else 0.5
+
+        # Group consecutive same-winner chunks into turns.
+        turns = []
+        cur_tid = chunk_winner[0]
+        cur_start_idx = chunk_bounds[0][0]
+        for i in range(1, len(chunk_winner)):
+            if chunk_winner[i] != cur_tid:
+                lo, hi = cur_start_idx, chunk_bounds[i - 1][1]
+                turns.append({"tid": cur_tid, "lo": lo, "hi": hi})
+                cur_tid = chunk_winner[i]
+                cur_start_idx = chunk_bounds[i][0]
+        turns.append({"tid": cur_tid, "lo": cur_start_idx, "hi": chunk_bounds[-1][1]})
+
+        # Merge turns shorter than MIN_SPEAKER_TURN_SEC into a neighbor.
+        min_samples = MIN_SPEAKER_TURN_SEC / FACE_SAMPLE_INTERVAL_SEC
+        merged = True
+        while merged and len(turns) > 1:
+            merged = False
+            for i, turn in enumerate(turns):
+                if (turn["hi"] - turn["lo"]) >= min_samples:
+                    continue
+                if i == 0:
+                    turns[i + 1]["lo"] = turn["lo"]
+                else:
+                    turns[i - 1]["hi"] = turn["hi"]
+                del turns[i]
+                merged = True
+                break
+
+        result = []
+        for turn in turns:
+            result.append({
+                "start": turn["lo"] * FACE_SAMPLE_INTERVAL_SEC,
+                "end": min(turn["hi"] * FACE_SAMPLE_INTERVAL_SEC, duration),
+                "face_x": face_x_for(turn["tid"], turn["lo"], turn["hi"]),
+            })
+        if result:
+            result[0]["start"] = 0.0
+            result[-1]["end"] = duration
+
+        if len(set(round(r["face_x"], 2) for r in result)) < 2:
+            return None
+
+        return result
+    except Exception:
+        return None
+
+
+def build_speaker_follow_expr(turns):
+    """
+    Build an ffmpeg crop-filter `x` expression that holds the 720px-wide crop
+    window on each turn's face position, switching at turn boundaries. `iw`
+    refers to the scaled frame's width at filter-eval time.
+    """
+    def x_for(face_x):
+        return f"clip(iw*{face_x:.4f}-360,0,iw-720)"
+
+    expr = x_for(turns[-1]["face_x"])
+    for turn in reversed(turns[:-1]):
+        expr = f"if(lt(t,{turn['end']:.3f}),{x_for(turn['face_x'])},{expr})"
+    return expr
+
+
 def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="default", use_subtitle=False, whisper_model=None):
     """
     Crop and export a single vertical clip from the already-downloaded full
@@ -393,7 +669,7 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
 
     Args:
         full_video_path: path to the full video downloaded by download_full_video
-        crop_mode: "default", "split_left", or "split_right"
+        crop_mode: "default", "split_left", "split_right", or "speaker_follow"
         use_subtitle: whether to generate and burn subtitle
         whisper_model: pre-loaded Faster-Whisper model (required if use_subtitle)
     """
@@ -416,6 +692,16 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
     )
 
     try:
+        speaker_turns = None
+        if crop_mode == "speaker_follow":
+            speaker_turns = detect_speaker_turns(full_video_path, start, end)
+            if not speaker_turns:
+                tqdm.write(
+                    f"[Clip {index}] Speaker-follow detection unavailable/inconclusive "
+                    f"— using default center crop."
+                )
+                crop_mode = "default"
+
         # Trim the clip range and crop, in one local ffmpeg pass — no
         # network involved, so -ss/-to against the full local file is fast
         # and reliable regardless of source resolution/codec.
@@ -465,6 +751,19 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
                 "-ss", str(start), "-to", str(end), "-i", full_video_path,
                 "-filter_complex", vf,
                 "-map", "[out]", "-map", "0:a?",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "aac", "-b:a", "128k",
+                cropped_file
+            ]
+        elif crop_mode == "speaker_follow":
+            # Crop stays centered on whoever detect_speaker_turns() judged to
+            # be talking, jumping to the next speaker's position at each
+            # detected turn boundary (discrete holds, not a smooth pan).
+            x_expr = build_speaker_follow_expr(speaker_turns)
+            cmd_crop = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
+                "-ss", str(start), "-to", str(end), "-i", full_video_path,
+                "-vf", f"scale=-2:1280,crop=720:1280:{x_expr}:(ih-1280)/2",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
@@ -643,9 +942,10 @@ def main():
     print("1. Default (center crop)")
     print("2. Split 1 (top: center, bottom: bottom-left (facecam))")
     print("3. Split 2 (top: center, bottom: bottom-right ((facecam))")
-    
+    print("4. Speaker follow (auto-crop to whoever is talking)")
+
     while True:
-        choice = input("\nSelect crop mode (1-3): ").strip()
+        choice = input("\nSelect crop mode (1-4): ").strip()
         if choice == "1":
             crop_mode = "default"
             crop_desc = "Default center crop"
@@ -658,9 +958,13 @@ def main():
             crop_mode = "split_right"
             crop_desc = "Split crop (bottom-right facecam)"
             break
+        elif choice == "4":
+            crop_mode = "speaker_follow"
+            crop_desc = "Speaker-follow crop (auto-crop to active speaker)"
+            break
         else:
-            print("Invalid choice. Please enter 1, 2, or 3.")
-    
+            print("Invalid choice. Please enter 1, 2, 3, or 4.")
+
     print(f"Selected: {crop_desc}")
     
     # Ask for subtitle
@@ -677,7 +981,7 @@ def main():
     print()
     
     # Check dependencies
-    cek_dependensi(install_whisper=use_subtitle)
+    cek_dependensi(install_whisper=use_subtitle, install_speaker_follow=(crop_mode == "speaker_follow"))
 
     link = input("Link YT: ").strip()
     video_id = extract_video_id(link)

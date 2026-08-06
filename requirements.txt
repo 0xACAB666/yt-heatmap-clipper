@@ -1,3 +1,7 @@
 requests>=2.31.0
 yt-dlp>=2024.01.01
 tqdm>=4.66.0
+
+# Optional: faster-whisper (pip install faster-whisper) for auto subtitles
+# Optional: mediapipe + opencv-python (pip install mediapipe opencv-python) for
+# the "speaker_follow" crop mode's face/mouth tracking
