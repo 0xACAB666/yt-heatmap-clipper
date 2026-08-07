@@ -70,12 +70,15 @@ def main():
 
     # 2. Check Python Dependencies
     # List format: (Pip Package Name, Import Name)
-    # Note: 'yt-dlp' imports as 'yt_dlp', 'faster-whisper' imports as 'faster_whisper'
+    # Note: 'yt-dlp' imports as 'yt_dlp', 'faster-whisper' imports as 'faster_whisper',
+    # 'opencv-python' imports as 'cv2'
     packages = [
         ("requests", "requests"),
         ("yt-dlp", "yt_dlp"),
         ("tqdm", "tqdm"),
-        ("faster-whisper", "faster_whisper")
+        ("faster-whisper", "faster_whisper"),
+        ("mediapipe", "mediapipe"),
+        ("opencv-python", "cv2")
     ]
     
     all_packages_ok = True
@@ -96,7 +99,7 @@ def main():
             print("   - You need to install Deno.")
         if not all_packages_ok:
             print("   - You need to install Python dependencies.")
-            print("     Run: pip install requests yt-dlp faster-whisper")
+            print("     Run: pip install requests yt-dlp faster-whisper mediapipe opencv-python")
 
 if __name__ == "__main__":
     main()
