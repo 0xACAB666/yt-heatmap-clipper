@@ -669,7 +669,8 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
 
     Args:
         full_video_path: path to the full video downloaded by download_full_video
-        crop_mode: "default", "split_left", "split_right", or "speaker_follow"
+        crop_mode: "default", "split_left", "split_right", "speaker_follow",
+            "half_left", or "half_right"
         use_subtitle: whether to generate and burn subtitle
         whisper_model: pre-loaded Faster-Whisper model (required if use_subtitle)
     """
@@ -764,6 +765,32 @@ def proses_satu_clip(full_video_path, item, index, total_duration, crop_mode="de
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
                 "-ss", str(start), "-to", str(end), "-i", full_video_path,
                 "-vf", f"scale=-2:1280,crop=720:1280:{x_expr}:(ih-1280)/2",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "aac", "-b:a", "128k",
+                cropped_file
+            ]
+        elif crop_mode == "half_left":
+            # Static crop centered on the midpoint of the left half of the
+            # scaled frame (not flush to the outer edge) - for side-by-side
+            # two-person layouts where the wanted speaker sits roughly in
+            # the middle of the left half for the whole video.
+            cmd_crop = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
+                "-ss", str(start), "-to", str(end), "-i", full_video_path,
+                "-vf", "scale=-2:1280,crop=720:1280:(iw/2-720)/2:(ih-1280)/2",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "aac", "-b:a", "128k",
+                cropped_file
+            ]
+        elif crop_mode == "half_right":
+            # Static crop centered on the midpoint of the right half of the
+            # scaled frame (not flush to the outer edge) - for side-by-side
+            # two-person layouts where the wanted speaker sits roughly in
+            # the middle of the right half for the whole video.
+            cmd_crop = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
+                "-ss", str(start), "-to", str(end), "-i", full_video_path,
+                "-vf", "scale=-2:1280,crop=720:1280:iw/2+(iw/2-720)/2:(ih-1280)/2",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 "-c:a", "aac", "-b:a", "128k",
                 cropped_file
@@ -943,9 +970,11 @@ def main():
     print("2. Split 1 (top: center, bottom: bottom-left (facecam))")
     print("3. Split 2 (top: center, bottom: bottom-right ((facecam))")
     print("4. Speaker follow (auto-crop to whoever is talking)")
+    print("5. Half screen - left (keep the left half, e.g. left-side speaker)")
+    print("6. Half screen - right (keep the right half, e.g. right-side speaker)")
 
     while True:
-        choice = input("\nSelect crop mode (1-4): ").strip()
+        choice = input("\nSelect crop mode (1-6): ").strip()
         if choice == "1":
             crop_mode = "default"
             crop_desc = "Default center crop"
@@ -962,8 +991,16 @@ def main():
             crop_mode = "speaker_follow"
             crop_desc = "Speaker-follow crop (auto-crop to active speaker)"
             break
+        elif choice == "5":
+            crop_mode = "half_left"
+            crop_desc = "Half screen crop (left half)"
+            break
+        elif choice == "6":
+            crop_mode = "half_right"
+            crop_desc = "Half screen crop (right half)"
+            break
         else:
-            print("Invalid choice. Please enter 1, 2, 3, or 4.")
+            print("Invalid choice. Please enter 1, 2, 3, 4, 5, or 6.")
 
     print(f"Selected: {crop_desc}")
     
