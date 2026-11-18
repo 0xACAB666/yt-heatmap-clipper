@@ -1,389 +1,255 @@
-# yt-heatmap-clipper
+# YouTube Heatmap & Custom Clip Maker
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
-[![FFmpeg](https://img.shields.io/badge/FFmpeg-Required-green.svg)](https://ffmpeg.org/)
-[![Whisper](https://img.shields.io/badge/AI-Faster--Whisper-orange.svg)](https://github.com/guillaumekln/faster-whisper)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-Required-green.svg](https://ffmpeg.org/)
+[![yt-dlp](https://img.shields.io/badge/Downloader-yt--dlp-orange.svg)](https://github.com/yt-dlp/yt-dlp)
 
-Automatically extract the most engaging segments from YouTube videos using **Most Replayed (heatmap) data** and convert them into vertical-ready clips with AI-powered subtitles.
+Download selected sections from YouTube videos using exact timestamps, or automatically find engaging moments using YouTube's **Most Replayed** heatmap.
 
-This tool parses YouTube audience engagement markers to detect high-interest moments and generates short vertical videos suitable for **YouTube Shorts**, **Instagram Reels**, and **TikTok**.
+There are two workflows:
 
----
-
-## ✨ Features
-
-### Core Features
-- Extracts YouTube **Most Replayed (heatmap)** segments
-- Automatically selects **high-engagement moments**
-- Configurable **pre and post padding** for each clip
-- Outputs **9:16 vertical video format** (720x1280)
-- **No YouTube API key required**
-- Supports standard YouTube videos and Shorts
-
-### Advanced Features
-- **3 Crop Modes**:
-  - **Default**: Center crop from original video
-  - **Split Left**: Top = center content, Bottom = bottom-left (facecam)
-  - **Split Right**: Top = center content, Bottom = bottom-right (facecam)
-- **AI Auto Subtitle** (Faster-Whisper):
-  - 4-5x faster than standard Whisper
-  - Support for Indonesian language (and 99+ languages)
-  - Multiple model sizes: tiny, base, small, medium, large
-  - Automatic transcription and subtitle burning
-  - Customizable subtitle style
+- **Custom clipping:** paste a YouTube URL and specify the exact start and end times.
+- **Automatic heatmap clipping:** detect high-engagement moments and create vertical clips using the original workflow.
 
 ---
 
-## ⚙️ How It Works
+## Download the project
 
-1.  **Parse Heatmap Data**: Fetches YouTube watch page and extracts "Most Replayed" markers.
-2.  **Filter Segments**: Identifies high-engagement moments based on score threshold.
-3.  **User Selection**: Interactive menu for crop mode and subtitle preferences.
-4.  **Smart Download**: Downloads only the required time ranges (with padding).
-5.  **Video Processing**:
-    - Scales to 1920px width (maintains aspect ratio).
-    - Applies selected crop mode (center, split-left, or split-right).
-    - Converts to 720x1280 vertical format.
-6.  **AI Transcription** (optional):
-    - Transcribes audio using Faster-Whisper.
-    - Generates SRT subtitle file.
-    - Burns subtitles with customizable style.
-7.  **Export**: Saves optimized MP4 clips ready for social media.
+Choose either method.
 
----
+### Option 1 — Download ZIP (easiest on Windows)
 
-## 🛠️ Requirements
+1. Open the [latest source ZIP](https://github.com/hellocloudwebdev/yt-heatmap-clipper/archive/refs/heads/main.zip).
+2. Extract the downloaded ZIP file.
+3. Open the extracted `yt-heatmap-clipper-main` folder.
+4. Open PowerShell or Command Prompt in that folder.
 
-- Python **3.8 or higher**
-- **FFmpeg** (must be installed and available in PATH)
-- Internet connection
-
-### Python Dependencies:
-- `requests` - HTTP requests
-- `yt-dlp` - YouTube video downloader
-- `faster-whisper` - AI transcription (optional, for subtitles)
-
-### Hardware Requirements:
-- **Minimum**: 2 GB RAM, 1 GB free disk space
-- **Recommended** (with subtitle): 4 GB RAM, 2 GB free disk space
-- Internet bandwidth: ~10 MB/s for smooth downloading
-
----
-
-## 🚀 Installation
-
-### Clone Repository
+### Option 2 — Clone with Git
 
 ```bash
-git clone https://github.com/0xACAB666/yt-heatmap-clipper.git
+git clone https://github.com/hellocloudwebdev/yt-heatmap-clipper.git
 cd yt-heatmap-clipper
 ```
 
-### Install Python Dependencies
+---
 
-**Basic installation** (without subtitle support):
+## Requirements
+
+- Python **3.10 or newer**
+- FFmpeg installed and available on your system PATH
+- An internet connection
+
+### Install Python dependencies
+
+Run this from the project folder:
+
 ```bash
-pip install requests yt-dlp
+python -m pip install -r requirements.txt
 ```
 
-**Full installation** (with AI subtitle support):
-```bash
-pip install requests yt-dlp faster-whisper
-```
+On Windows, you can use `py` instead of `python` if that is how Python is installed:
 
-Or use requirements file if available:
-```bash
-pip install -r requirements.txt
+```powershell
+py -m pip install -r requirements.txt
 ```
 
 ### Install FFmpeg
 
-FFmpeg is the core engine for video processing and **must** be installed.
+FFmpeg is required to process and export video clips. Installing the Python packages alone is not enough.
 
-#### 🪟 Windows
+- **Windows:** download FFmpeg from [ffmpeg.org](https://ffmpeg.org/download.html), extract it, and add its `bin` folder (for example, `C:\\ffmpeg\\bin`) to your PATH. Restart your terminal afterwards.
+- **macOS:** `brew install ffmpeg`
+- **Ubuntu/Debian:** `sudo apt update && sudo apt install ffmpeg`
 
-```bash
-1. Download from https://ffmpeg.org/download.html
-2. Extract to `C:\ffmpeg`
-3. Add `C:\ffmpeg\bin` to system PATH
-4. Restart terminal
-```
-#### 🍎 macOS
-```bash
-brew install ffmpeg
-```
-
-#### 🐧 Linux
-```bash
-sudo apt update && sudo apt install ffmpeg
-```
-
-### 🩺 Verify Installation (Optional)
-
-We have included a script (`check_setup.py`) to verify if **FFmpeg** and all **Python dependencies** are correctly installed.
-
-Simply run:
+Verify that both commands work:
 
 ```bash
-python check_setup.py
+python --version
+ffmpeg -version
 ```
 
-**Expected Output:**
-If your environment is ready, you should see green checkmarks like this:
-
-```text
-✅ FFmpeg is installed and recognized.
-✅ Library 'requests' is installed.
-✅ Library 'yt_dlp' is installed.
-✅ Library 'faster_whisper' is installed.
-```
+If your terminal says that `ffmpeg` is not recognized or not found, check the PATH setup and restart the terminal.
 
 ---
 
-## 📖 Usage
+## Start the clipper
 
-### Basic Usage
+From the project folder, run:
+
+```bash
+python launcher.py
+```
+
+On Windows, this also works:
+
+```powershell
+py launcher.py
+```
+
+The launcher displays two options:
+
+```text
+=== YouTube Clipper ===
+1. Automatic heatmap clipping (original workflow)
+2. Custom time-range clipping
+Choose mode (1-2):
+```
+
+Choose **2** for manual clipping or **1** for automatic heatmap clipping.
+
+---
+
+## Custom clipping — choose your own timestamps
+
+Use this mode when you already know which part of a video you want to save.
+
+1. Start the launcher with `python launcher.py`.
+2. Enter `2` to select **Custom time-range clipping**.
+3. Paste a YouTube video URL.
+4. Enter the start time.
+5. Enter the end time. The end time must be later than the start time.
+6. The selected section is downloaded and saved as an MP4.
+
+### Example
+
+To save the video from **1 minute to 1 minute 40 seconds**:
+
+```text
+=== YouTube Clipper ===
+1. Automatic heatmap clipping (original workflow)
+2. Custom time-range clipping
+Choose mode (1-2): 2
+
+YouTube URL: https://www.youtube.com/watch?v=VIDEO_ID
+Start time (e.g. 01:00 or 00:01:00): 01:00
+End time (e.g. 01:40 or 00:01:40): 01:40
+
+Requested range: 60.000s → 100.000s (40.000s)
+Downloading selected section with yt-dlp + FFmpeg...
+
+Clip saved: clips/custom_VIDEO_ID_00-01-00_to_00-01-40.mp4
+```
+
+Replace the example URL with the video you want to clip.
+
+### Supported timestamp formats
+
+| Format | Example | Meaning |
+| --- | --- | --- |
+| Seconds | `75` | 1 minute 15 seconds |
+| Minutes:Seconds | `01:15` | 1 minute 15 seconds |
+| Hours:Minutes:Seconds | `00:01:15` | 1 minute 15 seconds |
+| Fractional seconds | `01:15.5` | 1 minute 15.5 seconds |
+
+The start and end can use different supported formats. For example, start at `60` and end at `01:40`.
+
+Supported URL types include standard YouTube watch links, `youtu.be` links, Shorts, embeds and live URLs. The video must be accessible to yt-dlp; private, age-restricted or otherwise restricted videos may not be downloadable.
+
+### Where are my clips saved?
+
+Custom clips are saved in the project's `clips/` folder. The output filename includes the video ID and selected time range. If a file with that name already exists, a numbered suffix is added rather than overwriting it.
+
+### Custom mode notes
+
+- The custom mode keeps the original video's aspect ratio; it does not automatically crop the result to vertical 9:16.
+- It does not generate or burn subtitles.
+- It uses yt-dlp's FFmpeg section download and keyframe handling. FFmpeg may fetch nearby media data to make the cut; the resulting cut boundaries can vary slightly depending on the source video's encoding.
+- If a download fails, check that the video is accessible, the timestamps are within the video's duration, and FFmpeg is installed correctly.
+
+---
+
+## Automatic heatmap clipping
+
+Choose **1** in the launcher to run the original `run.py` workflow.
+
+This mode reads YouTube's Most Replayed heatmap data and selects high-engagement segments. It can then download, crop and optionally subtitle the selected moments.
+
+The original workflow supports:
+
+- Automatic detection of high-engagement moments from heatmap data
+- Configurable clip duration, engagement threshold and padding
+- Three vertical crop layouts: center, split-left and split-right
+- Optional AI subtitles using Faster-Whisper
+- MP4 output in the `clips/` folder
+
+The original script can also be started directly:
 
 ```bash
 python run.py
 ```
 
-### Interactive Workflow
-
-The script will guide you through an interactive setup:
-
-1.  **Select Crop Mode** (1-3):
-    - `1` - Default (center crop)
-    - `2` - Split 1 (top: center, bottom: bottom-left facecam)
-    - `3` - Split 2 (top: center, bottom: bottom-right facecam)
-
-2.  **Enable Auto Subtitle** (y/n):
-    - `y` - Generate AI-powered subtitles
-    - `n` - Skip subtitle generation
-
-3.  **Enter YouTube URL**: Paste the link.
-
-4.  **Processing**: The script takes over from here.
-
-### 💻 Example Session
-
-```text
-=== Crop Mode ===
-1. Default (center crop)
-2. Split 1 (top: center, bottom: bottom-left (facecam))
-3. Split 2 (top: center, bottom: bottom-right (facecam))
-
-Select crop mode (1-3): 3
-Selected: Split crop (bottom-right facecam)
-
-=== Auto Subtitle ===
-Available model: tiny (~75 MB)
-Add auto subtitle using Faster-Whisper? (y/n): y
-✅ Subtitle enabled (Model: tiny, Bahasa Indonesia)
-
-✅ Faster-Whisper package installed.
-✅ Model 'tiny' already cached and ready.
-
-Link YT: [https://www.youtube.com/watch?v=dQw4w9WgXcQ](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-Reading YouTube heatmap data...
-Found 6 high-engagement segments.
-Processing clips with 10s pre-padding and 10s post-padding.
-[Clip 1] Processing segment (230s - 268s, padding 10s)
-  Cropping video...
-  Generating subtitle...
-  ✅ Model loaded. Transcribing audio...
-  Burning subtitle to video...
-Clip successfully generated.
-```
-
-Generated clips will be saved in the `clips/` directory.
+The automatic workflow has additional processing requirements for video cropping and optional transcription. If you enable AI subtitles, Faster-Whisper and its speech-recognition model may be installed/downloaded on first use. Model downloads can require substantial disk space and memory.
 
 ---
 
-## 🔧 Configuration
+## Output
 
-You can modify these settings at the top of `run.py`:
+Both workflows save generated clips in:
 
-### Basic Settings
-```python
-OUTPUT_DIR = "clips"      # Output directory for generated clips
-MAX_DURATION = 60         # Maximum clip duration (seconds)
-MIN_SCORE = 0.40          # Minimum heatmap score threshold (0.0-1.0)
-MAX_CLIPS = 10            # Maximum number of clips per video
-PADDING = 10              # Seconds added before and after each segment
+```text
+yt-heatmap-clipper/
+└── clips/
+    ├── custom_VIDEO_ID_00-01-00_to_00-01-40.mp4
+    ├── clip_1.mp4
+    └── clip_2.mp4
 ```
 
-### Crop Mode Settings
-```python
-TOP_HEIGHT = 960          # Height for top section in split mode (px)
-BOTTOM_HEIGHT = 320       # Height for bottom section (facecam) in split mode (px)
-```
-> **Note**: `TOP_HEIGHT + BOTTOM_HEIGHT = 1280` (total vertical resolution)
-
-### Subtitle Settings
-```python
-USE_SUBTITLE = True       # Enable auto subtitle (can be overridden at runtime)
-WHISPER_MODEL = "tiny"    # Whisper model: tiny, base, small, medium, large
-```
-
-### Whisper Model Comparison
-
-| Model | Size | RAM | Speed (60s) | Accuracy | Best For |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **tiny** | 75 MB | ~500 MB | ~5-7s | Good | Quick clips, low-end PC |
-| **base** | 142 MB | ~700 MB | ~8-10s | Better | General purpose |
-| **small** | 466 MB | ~1.5 GB | ~15-20s | Great | Quality content |
-| **medium** | 1.5 GB | ~3 GB | ~40-50s | Excellent | Professional work |
-| **large-v3** | 2.9 GB | ~6 GB | ~90-120s | Best | Production quality |
-
-> **Recommendation**: Use `tiny` for speed, `small` for quality balance.
+Custom clipping preserves the source aspect ratio. Automatic heatmap clipping creates vertical-ready output according to the selected crop mode.
 
 ---
 
-## 📂 Output
+## Troubleshooting
 
-### Video Specifications
-- **Format**: MP4 (H.264 video + AAC audio)
-- **Resolution**: 720x1280 (9:16 vertical)
-- **Video Codec**: libx264, CRF 26, ultrafast preset
-- **Audio Codec**: AAC, 128 kbps
-- **Subtitle**: Burned-in (if enabled), white text with black outline
+### `python` or `py` is not recognized
 
-### File Naming
-```text
-clips/
-├── clip_1.mp4
-├── clip_2.mp4
-└── clip_3.mp4
-```
-
----
-
-## 📐 Visualization
-
-### Mode 1: Default (Center Crop)
-Best for Vlogs, Podcasts, or general videos.
-**Output Resolution:** 720 x 1280 px.
-
-```text
-[ Original 16:9 ]             [ Output 9:16 ]
-┌───────────────────────┐     ┌───────────┐
-│           │           │     │           │
-│           │           │     │           │
-│        CONTENT        │ ──► │  CONTENT  │ ↕ 1280px
-│           │           │     │           │
-│           │           │     │           │
-└───────────────────────┘     └───────────┘
-        (Center)
-```
-
-### Mode 2: Split Left (Gaming/Reaction)
-Best for streamers with **Facecam on the Bottom-Left**.
-**Output Resolution:** 720 x 1280 px.
-
-```text
-[ Original 16:9 ]             [ Output 9:16 ]
-┌───────────────────────┐     ┌───────────┐
-│           │           │     │  CONTENT  │ ↕ 960px
-│        CONTENT        │ ──► │ (Center)  │
-│           │           │     ├───────────┤
-├───┐                   │     │  FACECAM  │ ↕ 320px
-│CAM│                   │     │ (Bot-Left)│
-└───┴───────────────────┘     └───────────┘
-```
-
-### Mode 3: Split Right (Gaming/Reaction)
-Best for streamers with **Facecam on the Bottom-Right**.
-**Output Resolution:** 720 x 1280 px.
-
-```text
-[ Original 16:9 ]             [ Output 9:16 ]
-┌───────────────────────┐     ┌───────────┐
-│           │           │     │  CONTENT  │ ↕ 960px
-│        CONTENT        │ ──► │ (Center)  │
-│           │           │     ├───────────┤
-│                   ┌───┤     │  FACECAM  │ ↕ 320px
-│                   │CAM│     │(Bot-Right)│
-└───────────────────┴───┘     └───────────┘
-```
-
----
-
-## ❓ Troubleshooting
+Install Python from [python.org](https://www.python.org/downloads/) and enable the option to add Python to PATH during installation. Reopen your terminal after installation.
 
 ### FFmpeg not found
-- **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html), add `bin` folder to PATH.
-- **macOS**: `brew install ffmpeg`
-- **Linux**: `sudo apt install ffmpeg`
 
-### No high-engagement segments found
-- Video might not have "Most Replayed" data yet (needs views/engagement).
-- Try lowering `MIN_SCORE` (e.g., from 0.40 to 0.30).
-- Check if video URL is correct.
+Install FFmpeg and add its `bin` directory to PATH. Restart the terminal and run `ffmpeg -version` to verify it.
 
-### Subtitle generation fails
-- Ensure internet connection for first-time model download.
-- Check available RAM (Whisper needs ~500MB-2GB depending on model).
-- Try smaller model: change `WHISPER_MODEL` from `small` to `tiny`.
+### The custom clip does not download
+
+- Check that the URL opens and the video is publicly accessible.
+- Confirm that the end timestamp is later than the start timestamp.
+- Make sure the timestamps are within the video's duration.
+- Update yt-dlp: `python -m pip install -U yt-dlp`.
+- Confirm FFmpeg works with `ffmpeg -version`.
+
+### No heatmap segments found in automatic mode
+
+Some videos do not have Most Replayed heatmap data. Try another video or adjust `MIN_SCORE` in `run.py`.
+
+### Automatic subtitles fail
+
+Check your internet connection, free disk space and available RAM. A smaller Whisper model (such as `tiny`) uses fewer resources than larger models.
 
 ---
 
-## 💡 Tips & Best Practices
+## Configuration
 
-### For Gaming Content
-- Use **Split Right** or **Split Left** mode (facecam in corner).
-- Keep `PADDING = 10` for context before/after action.
-- Use `small` or `base` model for accurate gaming terminology.
-
-### For Tutorial/Vlog Content
-- Use **Default** center crop mode.
-- Increase `MAX_DURATION = 90` for longer explanations.
-- Enable subtitles with `tiny` model for fast processing.
-
-### Subtitle Customization
-Edit line ~368 in `run.py` to customize subtitle style:
+The automatic heatmap workflow can be configured near the top of `run.py`:
 
 ```python
-# Current style (white text, black outline):
-BorderStyle=1,Outline=3,Shadow=2,MarginV=30
-
-# Large text:
-FontSize=28,Outline=4
-
-# Position higher (avoid facecam):
-MarginV=400
-
-# Different color (yellow):
-PrimaryColour=&H00FFFF
+MAX_DURATION = 60    # Maximum duration for each detected segment
+MIN_SCORE = 0.40     # Minimum heatmap intensity score
+MAX_CLIPS = 10       # Maximum number of clips to generate
+PADDING = 10         # Extra seconds before and after a detected segment
+WHISPER_MODEL = "small"
 ```
 
----
-
-## 🤝 Contribution
-
-Contributions are welcome! Feel free to:
-- Report bugs
-- Suggest features
-- Submit pull requests
-- Improve documentation
+These settings apply to the automatic heatmap workflow. Custom clipping uses the start and end times entered in the launcher.
 
 ---
 
-## 📜 License
-MIT License
+## Important
 
----
+Only download and use videos that you have permission to download and edit. You are responsible for complying with YouTube's terms, copyright law and any rights applicable to the source content.
 
-## 🙏 Credits
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** - YouTube video downloader
-- **[FFmpeg](https://ffmpeg.org/)** - Video processing
-- **[Faster-Whisper](https://github.com/guillaumekln/faster-whisper)** - AI transcription
-- **[OpenAI Whisper](https://github.com/openai/whisper)** - Speech recognition model
+## Contributing
 
----
+Bug reports, feature suggestions and pull requests are welcome. Please open an issue on this repository for questions or problems.
 
-## 🌟 Support
+## License
 
-If you find this tool useful, please **⭐ star this repository!**
-
-For issues and questions, please open an issue on GitHub.
+MIT License.
